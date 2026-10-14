@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <path id="star4" d="M50 0C53 40 60 47 100 50C60 53 53 60 50 100C47 60 40 53 0 50C40 47 47 40 50 0Z"/>
+  </defs>
+  <rect width="100" height="100" fill="#12130F"/>
+  <g fill="none" stroke="#F2B51C" stroke-width="1.6">
+    <ellipse cx="50" cy="50" rx="42" ry="14"/>
+    <ellipse cx="50" cy="50" rx="29" ry="9.5"/>
+    <ellipse cx="50" cy="50" rx="15" ry="5"/>
+  </g>
+  <path d="M50 38C50.8 46 53.5 48.7 62 50C53.5 51.3 50.8 54 50 62C49.2 54 46.5 51.3 38 50C46.5 48.7 49.2 46 50 38Z" fill="#F2B51C"/>
+  <use href="#star4" transform="translate(74 8) scale(0.18)" fill="#F2B51C"/>
+  <use href="#star4" transform="translate(8 74) scale(0.18)" fill="#F2B51C"/>
+</svg>
