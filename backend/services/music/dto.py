@@ -102,6 +102,12 @@ class ServiceErrorDTO(BaseModel):
     status_code: int | None = None
 
 
+class SearchType(str, Enum):
+    TRACK = "track"
+    ARTIST = "artist"
+    PLAYLIST = "playlist"
+
+
 class SearchResultDTO(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -110,3 +116,4 @@ class SearchResultDTO(BaseModel):
     artists: tuple[ArtistDTO, ...] = ()
     playlists: tuple[PlaylistDTO, ...] = ()
     errors: tuple[ServiceErrorDTO, ...] = ()
+
