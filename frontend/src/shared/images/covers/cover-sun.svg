@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <clipPath id="disc">
+      <circle cx="50" cy="50" r="23"/>
+    </clipPath>
+    <pattern id="barcode" width="7.5" height="6" patternUnits="userSpaceOnUse">
+      <rect x="0" width="1.25" height="6" fill="#12130F"/>
+      <rect x="2.5" width="0.6" height="6" fill="#12130F"/>
+      <rect x="5" width="1.9" height="6" fill="#12130F"/>
+    </pattern>
+  </defs>
+  <rect width="100" height="100" fill="#F2B51C"/>
+  <circle cx="50" cy="50" r="34" fill="#12130F"/>
+  <g clip-path="url(#disc)" fill="#F2B51C">
+    <rect x="27" y="27" width="46" height="23"/>
+    <rect x="27" y="50" width="46" height="2.3"/>
+    <rect x="27" y="54.6" width="46" height="2.3"/>
+    <rect x="27" y="59.2" width="46" height="2.3"/>
+    <rect x="27" y="63.8" width="46" height="2.3"/>
+    <rect x="27" y="68.4" width="46" height="2.3"/>
+  </g>
+  <rect x="10" y="88" width="80" height="6" fill="url(#barcode)"/>
+</svg>
