@@ -1,0 +1,7 @@
+djangorestframework
+djangorestframework-simplejwt
+psycopg[binary]>=3.1.18
+Pillow
+
+django-stubs
+djangorestframework-stubs
