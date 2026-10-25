@@ -3,11 +3,7 @@ import coverOrange from "./images/covers/cover-orange.svg";
 import coverOrbit from "./images/covers/cover-orbit.svg";
 import coverForest from "./images/covers/cover-forest.svg";
 import coverSun from "./images/covers/cover-sun.svg";
-import type { Service, Track, Album, Playlist, UserFile, Wave, User } from "./types.ts";
-
-export const user: User = {
-    name: "Тест",
-};
+import type { Service, Track, Album, Playlist, UserFile, Wave } from "./types.ts";
 
 export const services: Service[] = [
     { code: "ЯМ", name: "Яндекс Музыка", shortName: "Яндекс", online: true },

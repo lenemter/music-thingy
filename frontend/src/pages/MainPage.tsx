@@ -14,12 +14,13 @@ type MainPageProps = {
     files: UserFile[]
     currentTrack: Track
     onPlay: (track: Track) => void
+    onLogout: () => void
 }
 
-function MainPage({ user, services, wave, albums, tracks, files, currentTrack, onPlay }: MainPageProps) {
+function MainPage({ user, services, wave, albums, tracks, files, currentTrack, onPlay, onLogout }: MainPageProps) {
     return (
         <main className="main">
-            <Header user={user} services={services}/>
+            <Header user={user} services={services} onLogout={onLogout}/>
             <WaveOfDay wave={wave}/>
             <ContinueListening albums={albums}/>
 

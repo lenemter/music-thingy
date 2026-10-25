@@ -48,4 +48,5 @@ export type Wave = {
 
 export type User = {
     name: string
+    email: string
 }
