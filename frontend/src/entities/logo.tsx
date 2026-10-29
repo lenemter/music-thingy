@@ -1,9 +1,14 @@
 import logo from "../shared/images/logo.svg";
+import logoDark from "../shared/images/logo-dark.svg";
 
-function Logo() {
+type LogoProps = {
+    dark?: boolean
+}
+
+function Logo({ dark = false }: LogoProps) {
     return (
-        <a className="logo" href="#">
-            <img src={logo} alt={"logo"} />
+        <a className={dark ? "logo dark" : "logo"} href="#">
+            <img src={dark ? logoDark : logo} alt={"logo"} />
             <div>
                 <h1>СИГНАЛ</h1>
                 <p>вся музыка · один эфир</p>

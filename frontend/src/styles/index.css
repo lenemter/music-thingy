@@ -40,6 +40,7 @@
   --hover: #26271F;
   --row: #1F201A;
   --border: #2E2F27;
+  --input-border: #3A3B31;
 
   --default-radius: 28px;
 }
@@ -432,6 +433,121 @@ body {
   font-family: 'Unbounded-Bold', sans-serif;
   font-size: 16px;
   cursor: pointer;
+}
+
+.profile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  box-sizing: border-box;
+}
+
+.profile-menu {
+  position: relative;
+  flex: none;
+}
+
+.profile-popup {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  z-index: 10;
+  width: 320px;
+  padding: 10px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background-color: var(--dark);
+  border: 1.5px solid var(--accent);
+  border-radius: 24px;
+  animation: popup-appear .2s ease-out;
+}
+
+@keyframes popup-appear {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.profile-popup.closing {
+  animation: popup-disappear .2s ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes popup-disappear {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-popup,
+  .profile-popup.closing {
+    animation: none;
+  }
+
+  .profile-popup.closing {
+    opacity: 0;
+  }
+}
+
+.profile-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.profile-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.profile-name,
+.profile-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-name {
+  font-family: 'Unbounded-Bold', sans-serif;
+  font-size: 17px;
+  color: var(--text);
+}
+
+.profile-email {
+  font-family: 'IBMPlexMono-Regular', monospace;
+  font-size: 13px;
+  color: var(--gray);
+}
+
+.button.accent.profile-logout {
+  align-self: stretch;
+  height: 56px;
+  padding: 0 20px;
+  gap: 14px;
+  border-radius: 18px;
+  font-family: 'Manrope-SemiBold', sans-serif;
+  font-size: 16px;
+}
+
+.button.profile-logout:hover {
+  transform: scale(1.02);
 }
 
 .hero {
@@ -943,5 +1059,247 @@ body {
 
   .hero-counter {
     align-self: flex-start;
+  }
+}
+
+.logo.dark h1,
+.logo.dark p {
+  color: var(--black);
+}
+
+.auth {
+  min-height: 100vh;
+  display: flex;
+  flex-wrap: wrap;
+  background-color: var(--black);
+}
+
+.auth-aside {
+  position: relative;
+  overflow: hidden;
+  flex: 1 1 480px;
+  min-height: 560px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 40px;
+  padding: 36px 40px;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, #4F6E92 0%, #8A9A9C 48%, #E8B232 100%);
+  color: var(--black);
+}
+
+.auth-aside .grain {
+  opacity: .35;
+}
+
+.auth-aside .logo,
+.auth-promo {
+  position: relative;
+}
+
+.auth-promo {
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-promo h1 {
+  font-size: 44px;
+  line-height: 1.02;
+  letter-spacing: -.02em;
+  text-wrap: balance;
+  color: var(--black);
+}
+
+.auth-promo p {
+  font-family: 'Manrope-SemiBold', sans-serif;
+  font-size: 16px;
+  color: var(--black);
+}
+
+.auth-stamp {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 8px;
+  font-family: 'IBMPlexMono-Medium', monospace;
+  font-size: 10px;
+  letter-spacing: .14em;
+}
+
+.auth-barcode {
+  width: 72px;
+  height: 30px;
+  background: repeating-linear-gradient(90deg, var(--black) 0 2px, transparent 2px 4px, var(--black) 4px 5px, transparent 5px 8px, var(--black) 8px 11px, transparent 11px 12px);
+}
+
+.auth-main {
+  flex: 1 1 520px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 40px;
+  box-sizing: border-box;
+}
+
+.auth-box {
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background-color: var(--dark);
+}
+
+.auth-tab {
+  flex: 1;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--light-gray);
+  font-family: 'Manrope-Bold', sans-serif;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background-color .3s, color .3s;
+}
+
+.auth-tab:hover {
+  color: var(--text);
+}
+
+.auth-tab.active {
+  background-color: var(--accent);
+  color: var(--black);
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.auth-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auth-heading h2 {
+  font-family: 'Unbounded-ExtraBold', sans-serif;
+  font-size: 30px;
+  line-height: 1.1;
+  letter-spacing: -.02em;
+}
+
+.auth-heading p {
+  font-size: 14px;
+  color: var(--gray);
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auth-field-top {
+  display: flex;
+  justify-content: space-between;
+}
+
+.auth-field-top a {
+  text-decoration: underline;
+  letter-spacing: .06em;
+}
+
+.auth-field input {
+  height: 52px;
+  padding: 0 16px;
+  box-sizing: border-box;
+  border: 1px solid var(--input-border);
+  border-radius: 16px;
+  outline: none;
+  background-color: var(--black);
+  color: var(--text);
+  font-family: 'Manrope-SemiBold', sans-serif;
+  font-size: 16px;
+  transition: border-color .3s;
+}
+
+.auth-field input::placeholder {
+  color: var(--gray);
+}
+
+.auth-field input:focus {
+  border-color: var(--accent);
+}
+
+.auth-field input.invalid {
+  border-color: var(--orange);
+}
+
+.auth-error {
+  font-size: 14px;
+  color: var(--orange);
+}
+
+.auth-submit.button.accent {
+  align-self: stretch;
+  justify-content: center;
+  height: 56px;
+  border-radius: 28px;
+  font-size: 16px;
+}
+
+.auth-submit.button:hover {
+  transform: scale(1.02);
+}
+
+.auth-submit.button:disabled {
+  opacity: .6;
+  cursor: default;
+  transform: none;
+}
+
+@media (max-width: 1000px) {
+  .auth-aside {
+    min-height: 360px;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.auth-promo,
+.auth-box {
+  animation: fade-up .6s ease-out both;
+}
+
+.auth-box {
+  animation-delay: .15s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-promo,
+  .auth-box {
+    animation: none;
   }
 }
