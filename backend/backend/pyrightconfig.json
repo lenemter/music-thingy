@@ -1,7 +1,0 @@
-{
-    "include": ["."],
-    "exclude": ["**/node_modules", "**/__pycache__", ".venv", "venv"],
-    "djangoSettings": "backend.settings",
-    "reportMissingTypeStubs": false,
-    "pythonVersion": "3.12"
-}
