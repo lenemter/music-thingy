@@ -71,25 +71,3 @@ async def get_current_active_user(
             detail="Inactive user account",
         )
     return current_user
-
-
-async def get_optional_current_user(
-    token: str | None = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db),
-) -> User | None:
-    if not token:
-        return None
-    try:
-        payload = decode_token(token)
-        if payload.get("type") != "access":
-            return None
-        user_id_str = payload.get("sub")
-        if not user_id_str:
-            return None
-        user_id = int(user_id_str)
-        stmt = select(User).where(User.id == user_id)
-        res = await db.exec(stmt)
-        user = res.first()
-        return user if user and user.is_active else None
-    except Exception:
-        return None

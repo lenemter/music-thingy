@@ -1,7 +1,5 @@
-from pathlib import Path
+from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
@@ -11,8 +9,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    PROJECT_NAME: str = "Music Aggregator API"
-    VERSION: str = "0.2.0"
+    PROJECT_NAME: str = "Music Thingy API"
+    VERSION: str = "0.1.0"
     DEBUG: bool = True
 
     # Security
@@ -37,17 +35,6 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://localhost:8000",
     ]
-
-    # File uploads & Audio storage
-    UPLOAD_DIR: str = str(BASE_DIR / "uploads")
-    MAX_UPLOAD_SIZE_BYTES: int = 50 * 1024 * 1024  # 50 MB
-
-    # External Music Services credentials (optional, fallback to mock/public mode if empty)
-    SPOTIFY_CLIENT_ID: str | None = None
-    SPOTIFY_CLIENT_SECRET: str | None = None
-    YOUTUBE_API_KEY: str | None = None
-    SOUNDCLOUD_CLIENT_ID: str | None = None
-    YANDEX_MUSIC_TOKEN: str | None = None
 
     @property
     def async_database_url(self) -> str:
