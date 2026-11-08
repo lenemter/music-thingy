@@ -19,7 +19,7 @@ class UserBase(SQLModel):
 
 
 class User(UserBase, table=True):
-    __tablename__ = "users"  # type: ignore
+    __tablename__ = "users"
 
     id: int | None = Field(default=None, primary_key=True, index=True)
     hashed_password: str = Field(max_length=255, nullable=False)

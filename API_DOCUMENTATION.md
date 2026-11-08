@@ -1,0 +1,267 @@
+# Документация Backend API: Получение треков и информации о них
+
+Данный сервис реализует API для поиска, получения информации о треках, альбомах, артистах и плейлистах, параметров воспроизведения и прямого аудиостриминга из внешних музыкальных сервисов.
+
+Архитектура построена на базе шаблона **Адаптер (Adapter)** и **Агрегатора (Aggregator)**:
+- Подключён рабочий адаптер **Яндекс Музыки** (`yandex-music`).
+- Агрегатор автоматически объединяет результаты запросов, выполняет дедупликацию треков и объединение тегов источников (`sources: ["ЯМ", ...]`).
+- Новые сервисы (Spotify, SoundCloud, YouTube) подключаются без изменения контракта API через реализацию `BaseMusicAdapter` и метод `aggregator.register_adapter(...)`.
+- Для сервисов без подключённого адаптера статус возвращается как `online: false`, а при поиске возвращается информативное сообщение об ошибке в поле `errors` без падения сервиса.
+
+---
+
+## 1. Базовые сведения
+
+- **Base URL:** `http://localhost:8000` (в Docker или локально)
+- **OpenAPI / Swagger UI:** `http://localhost:8000/docs`
+- **ReDoc:** `http://localhost:8000/redoc`
+
+---
+
+## 2. Эндпоинты
+
+### 2.1. Список доступных сервисов-источников
+- **Маршрут:** `GET /api/services` или `GET /api/music/services`
+- **Описание:** Возвращает перечень всех музыкальных сервисов, их названия, краткие коды (`ЯМ`, `SP`, `SC`, `YT`) и статус `online` (доступность адаптера).
+- **Ответ (200 OK):**
+```json
+[
+  {
+    "code": "ЯМ",
+    "name": "Яндекс Музыка",
+    "shortName": "Яндекс",
+    "service": "yandex",
+    "online": true
+  },
+  {
+    "code": "SP",
+    "name": "Spotify",
+    "shortName": "Spotify",
+    "service": "spotify",
+    "online": false
+  },
+  {
+    "code": "SC",
+    "name": "SoundCloud",
+    "shortName": "SoundCloud",
+    "service": "soundcloud",
+    "online": false
+  },
+  {
+    "code": "YT",
+    "name": "YouTube",
+    "shortName": "YouTube",
+    "service": "youtube",
+    "online": false
+  }
+]
+```
+
+---
+
+### 2.2. Мультисервисный поиск
+- **Маршрут:** `GET /api/music/search`
+- **Query параметры:**
+  - `q` (string, обязательный, min_length=1): Поисковый запрос (например `Queen`, `Meteora`).
+  - `services` (string, опционально): Список сервисов через запятую (например `yandex` или `yandex,spotify`). По умолчанию опрашиваются все поддерживаемые сервисы.
+  - `types` (string, опционально): Типы сущностей через запятую: `track`, `album`, `artist`, `playlist` (по умолчанию `track,album`).
+  - `limit` (int, опционально, по умолчанию 10, максимум 50): Лимит результатов на сервис.
+- **Пример запроса:**
+  ```http
+  GET /api/music/search?q=Queen&services=yandex&types=track,album&limit=5
+  ```
+- **Ответ (200 OK):**
+```json
+{
+  "query": "Queen",
+  "tracks": [
+    {
+      "id": 87491164,
+      "track_key": "yandex:87491164:16916643",
+      "service": "yandex",
+      "service_id": "87491164:16916643",
+      "title": "Queen",
+      "artist": "KVPV",
+      "artists": ["KVPV"],
+      "artist_ids": ["5801667"],
+      "album": "Queen",
+      "cover": "https://avatars.yandex.net/get-music-content/13043189/18a7b164.a.16916643-2/400x400",
+      "artwork_url": "https://avatars.yandex.net/get-music-content/13043189/18a7b164.a.16916643-2/400x400",
+      "duration": 157,
+      "duration_ms": 157710,
+      "sources": ["ЯМ"],
+      "source": "ЯМ",
+      "is_playable": true,
+      "edited": false,
+      "liked": false,
+      "playback": {
+        "kind": "yandex_iframe",
+        "ref": "87491164/16916643"
+      },
+      "direct_audio_url": null,
+      "stream_url": "/api/music/tracks/yandex/87491164:16916643/stream",
+      "external_url": "https://music.yandex.ru/album/16916643/track/87491164"
+    }
+  ],
+  "albums": [
+    {
+      "id": 16916643,
+      "service": "yandex",
+      "service_id": "16916643",
+      "title": "Queen",
+      "subtitle": "KVPV · альбом",
+      "artist": "KVPV",
+      "year": 2021,
+      "cover": "https://avatars.yandex.net/get-music-content/13043189/18a7b164.a.16916643-2/400x400",
+      "artwork_url": "https://avatars.yandex.net/get-music-content/13043189/18a7b164.a.16916643-2/400x400",
+      "external_url": "https://music.yandex.ru/album/16916643",
+      "tracks_count": 1,
+      "tracks": null
+    }
+  ],
+  "artists": [],
+  "playlists": [],
+  "errors": []
+}
+```
+
+---
+
+### 2.3. Получение информации о треке
+- **Маршрут:** `GET /api/music/tracks/{service}/{service_id}`
+- **Параметры пути:**
+  - `service`: Код или имя сервиса (например `yandex`, `ЯМ`).
+  - `service_id`: Идентификатор трека в сервисе (для Яндекса — `track_id` или `track_id:album_id`).
+- **Ответ (200 OK):**
+```json
+{
+  "id": 178529,
+  "track_key": "yandex:178529:21940",
+  "service": "yandex",
+  "service_id": "178529:21940",
+  "title": "Numb",
+  "artist": "Linkin Park",
+  "artists": ["Linkin Park"],
+  "artist_ids": ["36800"],
+  "album": "Meteora",
+  "cover": "https://avatars.yandex.net/get-music-content/142001/a92a262f.a.21940-7/400x400",
+  "artwork_url": "https://avatars.yandex.net/get-music-content/142001/a92a262f.a.21940-7/400x400",
+  "duration": 187,
+  "duration_ms": 187520,
+  "sources": ["ЯМ"],
+  "source": "ЯМ",
+  "is_playable": true,
+  "edited": false,
+  "liked": false,
+  "playback": {
+    "kind": "yandex_iframe",
+    "ref": "178529/21940",
+    "direct_audio_url": "https://api.music.yandex.net/get-mp3/..."
+  },
+  "direct_audio_url": "https://api.music.yandex.net/get-mp3/...",
+  "stream_url": "/api/music/tracks/yandex/178529:21940/stream",
+  "external_url": "https://music.yandex.ru/album/21940/track/178529"
+}
+```
+
+---
+
+### 2.4. Параметры воспроизведения трека (Playback)
+- **Маршрут:** `GET /api/music/playback/{service}/{service_id}`
+- **Описание:** Возвращает тип плеера (`yandex_iframe`, `spotify_sdk`, `soundcloud_widget`, `youtube_iframe`, `direct_url`) и его референс.
+- **Ответ (200 OK):**
+```json
+{
+  "kind": "yandex_iframe",
+  "ref": "178529/21940",
+  "direct_audio_url": "https://api.music.yandex.net/get-mp3/..."
+}
+```
+
+---
+
+### 2.5. Стриминг аудиодорожки
+- **Маршрут:** `GET /api/music/tracks/{service}/{service_id}/stream`
+- **Query параметры:**
+  - `redirect` (bool, по умолчанию `false`):
+    - При `false` сервер проксирует аудиопоток с поддержкой HTTP Range (`206 Partial Content`), что позволяет использовать `<audio src="/api/music/tracks/yandex/178529:21940/stream">` с мгновенной перемоткой без проблем с CORS.
+    - При `true` сервер возвращает `307 Temporary Redirect` сразу на прямую ссылку CDN провайдера.
+
+---
+
+### 2.6. Получение информации об альбоме
+- **Маршрут:** `GET /api/music/albums/{service}/{service_id}`
+- **Описание:** Возвращает информацию об альбоме и список входящих в него треков.
+- **Ответ (200 OK):**
+```json
+{
+  "id": 21940,
+  "service": "yandex",
+  "service_id": "21940",
+  "title": "Meteora",
+  "subtitle": "Linkin Park · альбом",
+  "artist": "Linkin Park",
+  "year": 2003,
+  "cover": "https://avatars.yandex.net/get-music-content/142001/a92a262f.a.21940-7/400x400",
+  "artwork_url": "https://avatars.yandex.net/get-music-content/142001/a92a262f.a.21940-7/400x400",
+  "external_url": "https://music.yandex.ru/album/21940",
+  "tracks_count": 16,
+  "tracks": [ ... ]
+}
+```
+
+---
+
+### 2.7. Получение информации об исполнителе
+- **Маршрут:** `GET /api/music/artists/{service}/{service_id}`
+- **Ответ (200 OK):**
+```json
+{
+  "service": "yandex",
+  "service_id": "36800",
+  "name": "Linkin Park",
+  "genres": ["numetal", "alternative"],
+  "cover": "https://avatars.yandex.net/get-music-content/...",
+  "artwork_url": "https://avatars.yandex.net/get-music-content/...",
+  "external_url": "https://music.yandex.ru/artist/36800"
+}
+```
+
+---
+
+### 2.8. Получение информации о плейлисте
+- **Маршрут:** `GET /api/music/playlists/{service}/{service_id}`
+- **Параметры:**
+  - `service`: `yandex`
+  - `service_id`: `owner_uid:kind` (например `103372440:2131`)
+- **Ответ (200 OK):**
+```json
+{
+  "id": 2131,
+  "service": "yandex",
+  "service_id": "103372440:2131",
+  "name": "Рок",
+  "title": "Рок",
+  "cover": "https://avatars.yandex.net/...",
+  "description": "Лучшие рок-композиции",
+  "owner_name": "Яндекс Музыка",
+  "tracks_count": 108,
+  "external_url": "https://music.yandex.ru/users/music-blog/playlists/2131",
+  "tracks": [ ... ]
+}
+```
+
+---
+
+## 3. Подключение новых адаптеров в будущем
+
+Для добавления нового музыкального сервиса (например, Spotify или SoundCloud):
+1. Реализуйте подкласс `BaseMusicAdapter` в `backend/services/music/<service>.py`.
+2. Зарегистрируйте экземпляр адаптера в агрегаторе:
+   ```python
+   from services.music.aggregator import aggregator
+   from services.music.spotify import SpotifyAdapter
+
+   aggregator.register_adapter(SpotifyAdapter(...))
+   ```
+3. Сервис автоматически станет `online: true` в `/api/services` и начнёт участвовать в мультисервисном поиске без изменения логики контроллеров и фронтенда.
