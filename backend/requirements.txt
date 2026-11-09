@@ -18,3 +18,4 @@ pytest-asyncio>=0.23.0
 yandex_music
 ytmusicapi
 yt-dlp
+vkpymusic
