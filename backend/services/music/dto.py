@@ -16,6 +16,7 @@ class Service(str, Enum):
     SOUNDCLOUD = "soundcloud"
     SPOTIFY = "spotify"
     YANDEX = "yandex"
+    VK = "vk"
 
 
 class PlaybackDTO(BaseModel):
