@@ -20,6 +20,7 @@ class Service(str, Enum):
     SOUNDCLOUD = "soundcloud"
     SPOTIFY = "spotify"
     YANDEX = "yandex"
+    VK = "vk"
 
 
 SERVICE_CODE_MAP: dict[Service, str] = {
