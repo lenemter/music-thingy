@@ -1,4 +1,3 @@
-from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +25,11 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = "db"
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = "app_db"
+
+    # Music Services
+    YANDEX_MUSIC_TOKEN: str | None = None
+    DEFAULT_SEARCH_LIMIT: int = 10
+    MAX_SEARCH_LIMIT: int = 50
 
     # CORS
     CORS_ORIGINS: list[str] = [
