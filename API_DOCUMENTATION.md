@@ -253,7 +253,140 @@
 
 ---
 
-## 3. Подключение новых адаптеров в будущем
+## 3. Привязка музыкальных сервисов (Подключение аккаунтов)
+
+Пользователь может привязать свои личные аккаунты сервисов (**Яндекс Музыка**, **YouTube Music**, **VK Музыка**). Привязанные сервисы хранятся в базе данных (`UserServiceAccount`), могут временно выключаться/включаться (`toggle`), а также автоматически участвуют в поиске и выгрузке плейлистов/избранного.
+
+### 3.1. Получение статуса подключений пользователя
+- **Маршрут:** `GET /api/services/connections`
+- **Заголовки:** `Authorization: Bearer <jwt_token>`
+- **Ответ (200 OK):**
+```json
+[
+  {
+    "service": "yandex",
+    "code": "ЯМ",
+    "name": "Яндекс Музыка",
+    "connected": true,
+    "is_active": true,
+    "account_name": "Иван Иванов",
+    "account_id": "12345678"
+  },
+  {
+    "service": "youtube",
+    "code": "YT",
+    "name": "YouTube",
+    "connected": false,
+    "is_active": false,
+    "account_name": null,
+    "account_id": null
+  },
+  {
+    "service": "vk",
+    "code": "VK",
+    "name": "VK Музыка",
+    "connected": false,
+    "is_active": false,
+    "account_name": null,
+    "account_id": null
+  }
+]
+```
+
+---
+
+### 3.2. Подключение сервиса
+- **Маршрут:** `POST /api/services/{service}/connect`
+- **Заголовки:** `Authorization: Bearer <jwt_token>`
+- **Параметр пути:** `service` (`yandex`, `youtube`, `vk`)
+
+#### Вариант А: Яндекс Музыка
+- **Тело запроса (JSON):**
+```json
+{
+  "token": "y0_AgAAAA..."
+}
+```
+
+#### Вариант Б: VK Музыка
+- **Тело запроса (JSON):**
+```json
+{
+  "token": "vk1.a.abc...",
+  "user_agent": "VKAndroidApp/8.0-1234 (Android 12; SDK 31; arm64-v8a; ...)"
+}
+```
+*Поле `user_agent` опционально.*
+
+#### Вариант В: YouTube Music (ручной токен или oauth.json)
+- **Тело запроса (JSON):**
+```json
+{
+  "token": "...",
+  "auth_json": "{\"access_token\": \"...\", \"refresh_token\": \"...\"}"
+}
+```
+
+---
+
+### 3.3. YouTube OAuth Device Code Flow (Google TV Flow)
+
+1. **Шаг 1: Получение кода для устройства**
+   - **Маршрут:** `POST /api/services/youtube/oauth/device-code`
+   - **Заголовки:** `Authorization: Bearer <jwt_token>`
+   - **Ответ (200 OK):**
+   ```json
+   {
+     "device_code": "...",
+     "user_code": "ABCD-EFGH",
+     "verification_url": "https://www.google.com/device",
+     "expires_in": 1800,
+     "interval": 5
+   }
+   ```
+   *Фронтенд показывает пользователю `verification_url` и код `user_code`.*
+
+2. **Шаг 2: Опрос готовности токена (Polling)**
+   - **Маршрут:** `POST /api/services/youtube/oauth/poll-token`
+   - **Заголовки:** `Authorization: Bearer <jwt_token>`
+   - **Тело запроса:**
+   ```json
+   {
+     "device_code": "..."
+   }
+   ```
+   - **Ответ (200 OK):** `ServiceConnectionStatus` с `"connected": true`.
+
+---
+
+### 3.4. Отключение сервиса
+- **Маршрут:** `DELETE /api/services/{service}/disconnect`
+- **Заголовки:** `Authorization: Bearer <jwt_token>`
+
+---
+
+### 3.5. Включение / отключение активности привязанного сервиса
+- **Маршрут:** `PUT /api/services/{service}/toggle`
+- **Заголовки:** `Authorization: Bearer <jwt_token>`
+- **Тело запроса:** `{"is_active": false}`
+
+---
+
+### 3.6. Персональные плейлисты пользователя
+- **Маршрут:** `GET /api/music/me/playlists`
+- **Заголовки:** `Authorization: Bearer <jwt_token>`
+- **Query параметры:** `services` (опционально)
+
+---
+
+### 3.7. Избранные треки пользователя
+- **Маршрут:** `GET /api/music/me/favorites`
+- **Заголовки:** `Authorization: Bearer <jwt_token>`
+- **Query параметры:** `services`, `limit`
+
+---
+
+## 4. Подключение новых адаптеров в будущем
 
 Для добавления нового музыкального сервиса (например, Spotify или SoundCloud):
 1. Реализуйте подкласс `BaseMusicAdapter` в `backend/services/music/<service>.py`.

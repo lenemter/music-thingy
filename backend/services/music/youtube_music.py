@@ -11,7 +11,7 @@ import logging
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from ytmusicapi import YTMusic
 from ytmusicapi.exceptions import YTMusicError
@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 _WEB_URL = "https://music.youtube.com"
 
-_SEARCH_FILTERS: dict[SearchType, str] = {
+_SEARCH_FILTERS: dict[SearchType, Any] = {
     SearchType.TRACK: "songs",
     SearchType.ARTIST: "artists",
     SearchType.PLAYLIST: "playlists",
@@ -271,11 +271,11 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
                                         limit=limit, ignore_spelling=True)
             items = [i for i in items or [] if isinstance(i, dict)]
             if search_type is SearchType.TRACK:
-                tracks = tuple(d for i in items if (d := _to_track(i)))[:limit]
+                tracks = tuple(dt for i in items if (dt := _to_track(i)))[:limit]
             elif search_type is SearchType.ARTIST:
-                artists = tuple(d for i in items if (d := _to_artist(i)))[:limit]
+                artists = tuple(da for i in items if (da := _to_artist(i)))[:limit]
             else:
-                playlists = tuple(d for i in items if (d := _to_playlist(i)))[:limit]
+                playlists = tuple(dp for i in items if (dp := _to_playlist(i)))[:limit]
 
         return SearchResultDTO(query=query, tracks=tracks, artists=artists, playlists=playlists)
 

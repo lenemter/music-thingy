@@ -80,12 +80,13 @@ def mock_aggregator():
 
 def test_services_status(mock_aggregator):
     statuses = mock_aggregator.get_services_status()
-    assert len(statuses) == 4
+    assert len(statuses) == 5
     status_by_code = {s["code"]: s["online"] for s in statuses}
     assert status_by_code["ЯМ"] is True
     assert status_by_code["SP"] is False
     assert status_by_code["SC"] is False
     assert status_by_code["YT"] is False
+    assert status_by_code["VK"] is False
 
 
 @pytest.mark.asyncio
@@ -95,11 +96,12 @@ async def test_search_all_services(mock_aggregator):
     assert len(result.tracks) == 1
     assert result.tracks[0].title == "Song A"
     # Unimplemented services are reported in errors without crashing
-    assert len(result.errors) == 3
+    assert len(result.errors) == 4
     err_services = {e.service for e in result.errors}
     assert Service.SPOTIFY in err_services
     assert Service.SOUNDCLOUD in err_services
     assert Service.YOUTUBE in err_services
+    assert Service.VK in err_services
 
 
 @pytest.mark.asyncio

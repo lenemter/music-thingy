@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -21,7 +22,9 @@ from .dto import (
     ServiceErrorDTO,
     TrackDTO,
 )
+from .vk import VkMusicAdapter
 from .yandex import YandexMusicAdapter
+from .youtube_music import YouTubeMusicAdapter
 
 log = logging.getLogger(__name__)
 
@@ -29,8 +32,8 @@ log = logging.getLogger(__name__)
 class MusicAggregator:
     """Aggregates searches and track/media retrieval across music services.
 
-    Supports dynamic adapter registration. By default, initializes available
-    adapters (e.g. Yandex Music) while exposing clean statuses for all platforms.
+    Supports dynamic adapter registration, user-scoped adapters with individual
+    authorization credentials, and personal library retrieval (playlists, favorites).
     """
 
     def __init__(self) -> None:
@@ -38,12 +41,19 @@ class MusicAggregator:
         self._init_adapters()
 
     def _init_adapters(self) -> None:
-        # Initialize Yandex Music adapter
+        # 1. Initialize Yandex Music adapter
         try:
             self._adapters[Service.YANDEX] = YandexMusicAdapter(token=settings.YANDEX_MUSIC_TOKEN)
             log.info("YandexMusicAdapter initialized successfully.")
         except Exception as e:
             log.warning("Could not initialize Yandex adapter: %s", e)
+
+        # 2. Initialize YouTube Music adapter
+        try:
+            self._adapters[Service.YOUTUBE] = YouTubeMusicAdapter()
+            log.info("YouTubeMusicAdapter initialized successfully.")
+        except Exception as e:
+            log.warning("Could not initialize YouTube adapter: %s", e)
 
     def register_adapter(self, adapter: BaseMusicAdapter) -> None:
         """Register an adapter for a service dynamically."""
@@ -70,9 +80,10 @@ class MusicAggregator:
         """Returns the list of supported services and their availability status matching frontend `Service[]`."""
         all_supported = [
             (Service.YANDEX, "ЯМ", "Яндекс Музыка", "Яндекс"),
+            (Service.YOUTUBE, "YT", "YouTube", "YouTube"),
+            (Service.VK, "VK", "VK Музыка", "VK"),
             (Service.SPOTIFY, "SP", "Spotify", "Spotify"),
             (Service.SOUNDCLOUD, "SC", "SoundCloud", "SoundCloud"),
-            (Service.YOUTUBE, "YT", "YouTube", "YouTube"),
         ]
 
         result = []
@@ -91,16 +102,196 @@ class MusicAggregator:
             })
         return result
 
+    def create_user_adapter(
+        self,
+        service: Service | str,
+        token: str | None = None,
+        extra_data: str | None = None,
+    ) -> BaseMusicAdapter | None:
+        """Creates or returns an adapter instance configured with the user's specific credentials."""
+        srv = service if isinstance(service, Service) else CODE_TO_SERVICE_MAP.get(str(service).lower())
+        if not srv:
+            return None
+
+        if srv == Service.YANDEX:
+            if token:
+                try:
+                    return YandexMusicAdapter(token=token)
+                except Exception as e:
+                    log.warning("Failed to initialize user Yandex adapter: %s", e)
+            return self.get_adapter(Service.YANDEX)
+
+        elif srv == Service.YOUTUBE:
+            if token or extra_data:
+                try:
+                    auth_val: Any = None
+                    if token:
+                        try:
+                            auth_val = json.loads(token)
+                        except Exception:
+                            auth_val = token
+                    elif extra_data:
+                        try:
+                            auth_val = json.loads(extra_data)
+                        except Exception:
+                            auth_val = extra_data
+                    return YouTubeMusicAdapter(auth=auth_val)
+                except Exception as e:
+                    log.warning("Failed to initialize user YouTube adapter: %s", e)
+            return self.get_adapter(Service.YOUTUBE)
+
+        elif srv == Service.VK:
+            if token:
+                ua = settings.VK_DEFAULT_USER_AGENT
+                if extra_data:
+                    try:
+                        parsed = json.loads(extra_data)
+                        if isinstance(parsed, dict) and "user_agent" in parsed:
+                            ua = parsed["user_agent"]
+                    except Exception:
+                        pass
+                try:
+                    return VkMusicAdapter(token=token, user_agent=ua)
+                except Exception as e:
+                    log.warning("Failed to initialize user VK adapter: %s", e)
+            return self.get_adapter(Service.VK)
+
+        return self.get_adapter(srv)
+
+    async def get_user_playlists(
+        self,
+        service: Service | str,
+        token: str | None = None,
+        extra_data: str | None = None,
+        account_id: str | None = None,
+    ) -> list[PlaylistDTO]:
+        adapter = self.create_user_adapter(service, token=token, extra_data=extra_data)
+        if not adapter:
+            return []
+
+        srv = adapter.service
+        if srv == Service.YANDEX and token:
+            def _fetch_yandex_playlists():
+                from services.music.yandex import _to_playlist
+                try:
+                    client = getattr(adapter, "_client", None)
+                    if not client:
+                        return []
+                    pls = client.users_playlists_list() or []
+                    return [p_dto for p in pls if (p_dto := _to_playlist(p)) is not None]
+                except Exception as e:
+                    log.warning("Failed to fetch Yandex playlists: %s", e)
+                    return []
+            return await asyncio.to_thread(_fetch_yandex_playlists)
+
+        elif srv == Service.YOUTUBE and (token or extra_data):
+            def _fetch_youtube_playlists():
+                from services.music.youtube_music import _to_playlist
+                try:
+                    yt = getattr(adapter, "_yt", None)
+                    if not yt:
+                        return []
+                    items = yt.get_library_playlists(limit=50) or []
+                    return [p_dto for i in items if (p_dto := _to_playlist(i)) is not None]
+                except Exception as e:
+                    log.warning("Failed to fetch YouTube playlists: %s", e)
+                    return []
+            return await asyncio.to_thread(_fetch_youtube_playlists)
+
+        elif srv == Service.VK and token:
+            def _fetch_vk_playlists():
+                from services.music.vk import _to_playlist
+                try:
+                    vk_api = getattr(adapter, "_vk", None)
+                    if not vk_api:
+                        return []
+                    owner_id = int(account_id) if account_id and account_id.lstrip("-").isdigit() else None
+                    if not owner_id:
+                        return []
+                    batch = vk_api.get_playlists_by_userid(owner_id, count=50) or []
+                    return [p_dto for p in batch if (p_dto := _to_playlist(p)) is not None]
+                except Exception as e:
+                    log.warning("Failed to fetch VK playlists: %s", e)
+                    return []
+            return await asyncio.to_thread(_fetch_vk_playlists)
+
+        return []
+
+    async def get_user_favorites(
+        self,
+        service: Service | str,
+        token: str | None = None,
+        extra_data: str | None = None,
+        account_id: str | None = None,
+        limit: int = 50,
+    ) -> list[TrackDTO]:
+        adapter = self.create_user_adapter(service, token=token, extra_data=extra_data)
+        if not adapter:
+            return []
+
+        srv = adapter.service
+        if srv == Service.YANDEX and token:
+            def _fetch_yandex_favorites():
+                from services.music.yandex import _to_track
+                try:
+                    client = getattr(adapter, "_client", None)
+                    if not client:
+                        return []
+                    likes = client.users_likes_tracks()
+                    if not likes:
+                        return []
+                    tracks = likes.fetch_tracks() or []
+                    return [t_dto for t in tracks if (t_dto := _to_track(t)) is not None][:limit]
+                except Exception as e:
+                    log.warning("Failed to fetch Yandex favorites: %s", e)
+                    return []
+            return await asyncio.to_thread(_fetch_yandex_favorites)
+
+        elif srv == Service.YOUTUBE and (token or extra_data):
+            def _fetch_youtube_favorites():
+                from services.music.youtube_music import _to_track
+                try:
+                    yt = getattr(adapter, "_yt", None)
+                    if not yt:
+                        return []
+                    liked = yt.get_liked_songs(limit=limit) or {}
+                    items = liked.get("tracks") or []
+                    return [t_dto for i in items if (t_dto := _to_track(i)) is not None][:limit]
+                except Exception as e:
+                    log.warning("Failed to fetch YouTube favorites: %s", e)
+                    return []
+            return await asyncio.to_thread(_fetch_youtube_favorites)
+
+        elif srv == Service.VK and token:
+            def _fetch_vk_favorites():
+                from services.music.vk import _to_track
+                try:
+                    vk_api = getattr(adapter, "_vk", None)
+                    if not vk_api:
+                        return []
+                    owner_id = int(account_id) if account_id and account_id.lstrip("-").isdigit() else None
+                    if not owner_id:
+                        return []
+                    songs = vk_api.get_songs_by_userid(owner_id, count=limit) or []
+                    return [t_dto for s in songs if (t_dto := _to_track(s, with_url=True)) is not None]
+                except Exception as e:
+                    log.warning("Failed to fetch VK favorites: %s", e)
+                    return []
+            return await asyncio.to_thread(_fetch_vk_favorites)
+
+        return []
+
     async def search(
         self,
         query: str,
         services: list[Service | str] | None = None,
         types: frozenset[SearchType] = frozenset({SearchType.TRACK}),
         limit_per_service: int = 10,
+        user_adapters: dict[Service, BaseMusicAdapter] | None = None,
     ) -> SearchResultDTO:
         # If no specific services requested, try all supported services
         if not services:
-            services = [Service.YANDEX, Service.SPOTIFY, Service.SOUNDCLOUD, Service.YOUTUBE]
+            services = [Service.YANDEX, Service.YOUTUBE, Service.VK, Service.SPOTIFY, Service.SOUNDCLOUD]
 
         # Resolve requested services
         target_services: list[Service] = []
@@ -109,13 +300,16 @@ class MusicAggregator:
             resolved = s if isinstance(s, Service) else CODE_TO_SERVICE_MAP.get(s.lower(), CODE_TO_SERVICE_MAP.get(s))
             if not resolved:
                 continue
-            if resolved in self._adapters and resolved not in target_services:
+
+            # Check if user has a custom adapter or global adapter is registered
+            adapter = (user_adapters and user_adapters.get(resolved)) or self._adapters.get(resolved)
+            if adapter and resolved not in target_services:
                 target_services.append(resolved)
-            elif resolved not in self._adapters and resolved not in missing_services:
+            elif not adapter and resolved not in missing_services:
                 missing_services.append(resolved)
 
         async def _query_service(srv: Service) -> SearchResultDTO:
-            adapter = self._adapters[srv]
+            adapter = (user_adapters and user_adapters.get(srv)) or self._adapters[srv]
             try:
                 return await asyncio.to_thread(adapter.search, query, types, limit_per_service)
             except Exception as e:
@@ -163,7 +357,7 @@ class MusicAggregator:
         )
 
     def _aggregate_tracks(self, tracks: list[TrackDTO]) -> list[TrackDTO]:
-        """Groups matching tracks across services to combine `sources` tags (e.g. ['ЯМ', 'SP'])."""
+        """Groups matching tracks across services to combine `sources` tags (e.g. ['ЯМ', 'YT'])."""
         by_key: dict[str, list[TrackDTO]] = {}
         for t in tracks:
             norm_title = "".join(ch for ch in t.title.lower() if ch.isalnum() or ch.isspace()).strip()
