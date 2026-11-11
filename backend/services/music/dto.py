@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PlaybackKind(str, Enum):
@@ -11,7 +11,7 @@ class PlaybackKind(str, Enum):
     SOUNDCLOUD_WIDGET = "soundcloud_widget"  # ref: permalink_url
     SPOTIFY_SDK = "spotify_sdk"              # ref: spotify:track:... or uri
     YANDEX_IFRAME = "yandex_iframe"          # ref: "{track_id}/{album_id}"
-    AUDIO_STREAM = "audio_stream"            # direct audio or local stream endpoint
+    AUDIO_STREAM = "audio_stream"            # direct audio or streaming endpoint
     DIRECT_URL = "direct_url"                # direct web url to mp3/audio
 
 
@@ -20,7 +20,7 @@ class Service(str, Enum):
     SOUNDCLOUD = "soundcloud"
     SPOTIFY = "spotify"
     YANDEX = "yandex"
-    LOCAL = "local"
+    VK = "vk"
 
 
 SERVICE_CODE_MAP: dict[Service, str] = {
@@ -28,7 +28,7 @@ SERVICE_CODE_MAP: dict[Service, str] = {
     Service.SPOTIFY: "SP",
     Service.SOUNDCLOUD: "SC",
     Service.YOUTUBE: "YT",
-    Service.LOCAL: "ФАЙЛ",
+    Service.VK: "VK",
 }
 
 SERVICE_NAME_MAP: dict[Service, str] = {
@@ -36,7 +36,7 @@ SERVICE_NAME_MAP: dict[Service, str] = {
     Service.SPOTIFY: "Spotify",
     Service.SOUNDCLOUD: "SoundCloud",
     Service.YOUTUBE: "YouTube",
-    Service.LOCAL: "Моя музыка",
+    Service.VK: "VK Музыка",
 }
 
 CODE_TO_SERVICE_MAP: dict[str, Service] = {
@@ -44,12 +44,13 @@ CODE_TO_SERVICE_MAP: dict[str, Service] = {
     "SP": Service.SPOTIFY,
     "SC": Service.SOUNDCLOUD,
     "YT": Service.YOUTUBE,
-    "ФАЙЛ": Service.LOCAL,
+    "VK": Service.VK,
     "yandex": Service.YANDEX,
     "spotify": Service.SPOTIFY,
     "soundcloud": Service.SOUNDCLOUD,
     "youtube": Service.YOUTUBE,
-    "local": Service.LOCAL,
+    "vk": Service.VK,
+    "вк": Service.VK,
 }
 
 
@@ -79,7 +80,7 @@ class TrackDTO(BaseModel):
     external_url: str | None = None
     artwork_url: str | None = None
 
-    sources: tuple[str, ...] = ()  # Service codes, e.g. ("ЯМ", "SP")
+    sources: tuple[str, ...] = ()
     edited: bool = False
     liked: bool = False
 
@@ -99,30 +100,39 @@ class TrackDTO(BaseModel):
             return max(1, self.duration_ms // 1000)
         return 0
 
+    @property
+    def track_key(self) -> str:
+        return f"{self.service.value}:{self.service_id}"
+
     def to_frontend_dict(self, numeric_id: int | None = None) -> dict[str, Any]:
         """Maps TrackDTO to the exact schema frontend expects in `Track`."""
         source_code = SERVICE_CODE_MAP.get(self.service, str(self.service.value).upper()[:2])
         all_sources = list(self.sources) if self.sources else [source_code]
 
-        # Generate a stable positive integer id if numeric_id is not passed
-        track_key = f"{self.service.value}:{self.service_id}"
-        stable_id = numeric_id if numeric_id is not None else (abs(hash(track_key)) % 10_000_000 + 1)
+        stable_id = numeric_id if numeric_id is not None else (abs(hash(self.track_key)) % 10_000_000 + 1)
 
         return {
             "id": stable_id,
-            "track_key": track_key,
+            "track_key": self.track_key,
             "service": self.service.value,
             "service_id": self.service_id,
             "title": self.title,
             "artist": self.artist_display,
+            "artists": list(self.artists),
+            "artist_ids": list(self.artist_ids),
+            "album": self.album,
             "cover": str(self.artwork_url) if self.artwork_url else "",
+            "artwork_url": str(self.artwork_url) if self.artwork_url else None,
             "duration": self.duration_seconds,
+            "duration_ms": self.duration_ms,
             "sources": all_sources,
             "source": source_code,
+            "is_playable": self.is_playable,
             "edited": self.edited,
             "liked": self.liked,
             "playback": self.playback.model_dump() if self.playback else None,
             "direct_audio_url": str(self.direct_audio_url) if self.direct_audio_url else None,
+            "stream_url": f"/api/music/tracks/{self.service.value}/{self.service_id}/stream",
             "external_url": str(self.external_url) if self.external_url else None,
         }
 
@@ -151,18 +161,26 @@ class AlbumDTO(BaseModel):
     tracks_count: int | None = None
     artwork_url: str | None = None
     external_url: str | None = None
+    tracks: tuple[TrackDTO, ...] | None = None
 
     def to_frontend_dict(self, numeric_id: int | None = None) -> dict[str, Any]:
         album_key = f"{self.service.value}:{self.service_id}"
         stable_id = numeric_id if numeric_id is not None else (abs(hash(album_key)) % 10_000_000 + 1)
         sub = self.subtitle or (f"{self.artist} · альбом" if self.artist else "Альбом")
+        tracks_data = [t.to_frontend_dict() for t in self.tracks] if self.tracks else None
         return {
             "id": stable_id,
             "service": self.service.value,
             "service_id": self.service_id,
             "title": self.title,
             "subtitle": sub,
+            "artist": self.artist,
+            "year": self.year,
             "cover": str(self.artwork_url) if self.artwork_url else "",
+            "artwork_url": str(self.artwork_url) if self.artwork_url else None,
+            "external_url": str(self.external_url) if self.external_url else None,
+            "tracks_count": self.tracks_count or (len(self.tracks) if self.tracks else 0),
+            "tracks": tracks_data,
         }
 
 
@@ -184,12 +202,20 @@ class PlaylistDTO(BaseModel):
     def to_frontend_dict(self, numeric_id: int | None = None) -> dict[str, Any]:
         playlist_key = f"{self.service.value}:{self.service_id}"
         stable_id = numeric_id if numeric_id is not None else (abs(hash(playlist_key)) % 10_000_000 + 1)
+        tracks_data = [t.to_frontend_dict() for t in self.tracks] if self.tracks else None
         return {
             "id": stable_id,
+            "service": self.service.value,
+            "service_id": self.service_id,
             "name": self.title,
+            "title": self.title,
             "cover": str(self.artwork_url) if self.artwork_url else "",
+            "artwork_url": str(self.artwork_url) if self.artwork_url else None,
             "description": self.description,
+            "owner_name": self.owner_name,
             "tracks_count": self.tracks_count or (len(self.tracks) if self.tracks else 0),
+            "external_url": str(self.external_url) if self.external_url else None,
+            "tracks": tracks_data,
         }
 
 

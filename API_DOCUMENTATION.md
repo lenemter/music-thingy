@@ -1,523 +1,400 @@
-# Документация Backend API для Фронтендера
+# Документация Backend API: Получение треков и информации о них
 
-Добро пожаловать! Этот бэкенд реализует всю функциональность ТЗ музыкального агрегатора:
-мультисервисный поиск, воспроизведение, плейлисты, избранное, история прослушиваний, рекомендации, "Волна дня", загрузка пользовательских аудиофайлов и встроенный аудиоредактор с эффектами.
+Данный сервис реализует API для поиска, получения информации о треках, альбомах, артистах и плейлистах, параметров воспроизведения и прямого аудиостриминга из внешних музыкальных сервисов.
 
-- **Base URL:** `http://localhost:8000` (при разработке с Vite запросы проксируются через `/api/...`)
-- **Интерактивная OpenAPI документация (Swagger UI):** [`http://localhost:8000/docs`](http://localhost:8000/docs)
-- **Альтернативная документация (ReDoc):** [`http://localhost:8000/redoc`](http://localhost:8000/redoc)
-- **Готовый TypeScript клиент:** уже подготовлен и настроен в [`frontend/src/shared/api.ts`](file:///c:/Users/Leo/Desktop/music-thingy/frontend/src/shared/api.ts)
+Архитектура построена на базе шаблона **Адаптер (Adapter)** и **Агрегатора (Aggregator)**:
+- Подключён рабочий адаптер **Яндекс Музыки** (`yandex-music`).
+- Агрегатор автоматически объединяет результаты запросов, выполняет дедупликацию треков и объединение тегов источников (`sources: ["ЯМ", ...]`).
+- Новые сервисы (Spotify, SoundCloud, YouTube) подключаются без изменения контракта API через реализацию `BaseMusicAdapter` и метод `aggregator.register_adapter(...)`.
+- Для сервисов без подключённого адаптера статус возвращается как `online: false`, а при поиске возвращается информативное сообщение об ошибке в поле `errors` без падения сервиса.
 
 ---
 
-## 1. Авторизация и JWT
+## 1. Базовые сведения
 
-Все приватные эндпоинты требуют заголовок:
-```http
-Authorization: Bearer <access_token>
+- **Base URL:** `http://localhost:8000` (в Docker или локально)
+- **OpenAPI / Swagger UI:** `http://localhost:8000/docs`
+- **ReDoc:** `http://localhost:8000/redoc`
+
+---
+
+## 2. Эндпоинты
+
+### 2.1. Список доступных сервисов-источников
+- **Маршрут:** `GET /api/services` или `GET /api/music/services`
+- **Описание:** Возвращает перечень всех музыкальных сервисов, их названия, краткие коды (`ЯМ`, `SP`, `SC`, `YT`) и статус `online` (доступность адаптера).
+- **Ответ (200 OK):**
+```json
+[
+  {
+    "code": "ЯМ",
+    "name": "Яндекс Музыка",
+    "shortName": "Яндекс",
+    "service": "yandex",
+    "online": true
+  },
+  {
+    "code": "SP",
+    "name": "Spotify",
+    "shortName": "Spotify",
+    "service": "spotify",
+    "online": false
+  },
+  {
+    "code": "SC",
+    "name": "SoundCloud",
+    "shortName": "SoundCloud",
+    "service": "soundcloud",
+    "online": false
+  },
+  {
+    "code": "YT",
+    "name": "YouTube",
+    "shortName": "YouTube",
+    "service": "youtube",
+    "online": false
+  }
+]
 ```
 
-### 1.1. Регистрация
-- **Метод:** `POST /api/auth/register`
-- **Тело запроса:**
-  ```json
-  {
-    "email": "user@example.com",
-    "password": "securepassword123",
-    "display_name": "Leo"
-  }
-  ```
-- **Ответ (201 Created):**
-  ```json
-  {
-    "id": 1,
-    "email": "user@example.com",
-    "display_name": "Leo"
-  }
-  ```
-
-### 1.2. Вход (Получение токенов)
-- **Метод:** `POST /api/auth/token` (или `POST /api/auth/login`)
-- **Тело запроса:**
-  ```json
-  {
-    "email": "user@example.com",
-    "password": "securepassword123"
-  }
-  ```
-- **Ответ (200 OK):**
-  ```json
-  {
-    "access_token": "eyJhbGciOi...",
-    "refresh_token": "eyJhbGciOi...",
-    "access": "eyJhbGciOi...",
-    "refresh": "eyJhbGciOi...",
-    "token_type": "bearer"
-  }
-  ```
-
-### 1.3. Обновление токена
-- **Метод:** `POST /api/auth/token/refresh`
-- **Тело запроса:**
-  ```json
-  {
-    "refresh": "eyJhbGciOi..."
-  }
-  ```
-
-### 1.4. Текущий пользователь
-- **Метод:** `GET /api/auth/me`
-- **Заголовки:** `Authorization: Bearer <token>`
-- **Ответ:** `{ "id": 1, "email": "user@example.com", "display_name": "Leo" }`
-
 ---
 
-## 2. Сервисы-источники музыки (Navbar & Header)
-
-Поддерживаемые сервисы:
-- `yandex` / `ЯМ` (Яндекс Музыка)
-- `spotify` / `SP` (Spotify)
-- `soundcloud` / `SC` (SoundCloud)
-- `youtube` / `YT` (YouTube)
-- `local` / `ФАЙЛ` (Загруженные пользователем треки)
-
-### 2.1. Список сервисов и статус онлайн
-- **Метод:** `GET /api/services`
-- **Описание:** Возвращает список всех сервисов, их названия, бейджи и статус `online` (с учётом персональных настроек пользователя, если передан токен).
-- **Ответ (200 OK):** Совпадает с типом `Service[]` во фронтенде:
-  ```json
-  [
-    { "code": "ЯМ", "name": "Яндекс Музыка", "shortName": "Яндекс", "service": "yandex", "online": true },
-    { "code": "SP", "name": "Spotify", "shortName": "Spotify", "service": "spotify", "online": true },
-    { "code": "SC", "name": "SoundCloud", "shortName": "SoundCloud", "service": "soundcloud", "online": true },
-    { "code": "YT", "name": "YouTube", "shortName": "YouTube", "service": "youtube", "online": true }
-  ]
+### 2.2. Мультисервисный поиск
+- **Маршрут:** `GET /api/music/search`
+- **Query параметры:**
+  - `q` (string, обязательный, min_length=1): Поисковый запрос (например `Queen`, `Meteora`).
+  - `services` (string, опционально): Список сервисов через запятую (например `yandex` или `yandex,spotify`). По умолчанию опрашиваются все поддерживаемые сервисы.
+  - `types` (string, опционально): Типы сущностей через запятую: `track`, `album`, `artist`, `playlist` (по умолчанию `track,album`).
+  - `limit` (int, опционально, по умолчанию 10, максимум 50): Лимит результатов на сервис.
+- **Пример запроса:**
+  ```http
+  GET /api/music/search?q=Queen&services=yandex&types=track,album&limit=5
   ```
-
-### 2.2. Настройка включённых сервисов
-- **Метод:** `PUT /api/services/preferences`
-- **Заголовки:** `Authorization: Bearer <token>`
-- **Тело запроса:**
-  ```json
-  {
-    "enabled_services": ["ям", "spotify"]
-  }
-  ```
-- **Ответ (200 OK):** Обновлённый список сервисов `Service[]`.
-
----
-
-## 3. Мультисервисный поиск и воспроизведение
-
-### 3.1. Агрегированный поиск
-- **Метод:** `GET /api/music/search`
-- **Параметры запроса (Query Params):**
-  - `q` (обязательный): поисковая строка (например, `Queen`, `Орбита 9`)
-  - `services` (опционально): через запятую, например `services=yandex,spotify,youtube` (по умолчанию используются все включённые сервисы)
-  - `types` (опционально): через запятую, например `types=track,album,artist,playlist` (по умолчанию `track,album`)
-  - `limit` (опционально, 1-50): число результатов на каждый сервис (по умолчанию `10`)
 - **Ответ (200 OK):**
-  ```json
-  {
-    "query": "Queen",
-    "tracks": [
-      {
-        "id": 8392104,
-        "track_key": "yandex:12345",
-        "service": "yandex",
-        "service_id": "12345",
-        "title": "Bohemian Rhapsody",
-        "artist": "Queen",
-        "cover": "https://avatars.yandex.net/get-music-content/...",
-        "duration": 354,
-        "sources": ["ЯМ", "SP"],
-        "source": "ЯМ",
-        "edited": false,
-        "liked": false,
-        "playback": {
-          "kind": "yandex_iframe",
-          "ref": "12345/6789"
-        },
-        "direct_audio_url": "https://...",
-        "external_url": "https://music.yandex.ru/album/6789/track/12345"
-      }
-    ],
-    "albums": [
-      {
-        "id": 492104,
-        "service": "spotify",
-        "service_id": "alb_1",
-        "title": "A Night at the Opera",
-        "subtitle": "Queen · альбом",
-        "cover": "https://..."
-      }
-    ],
-    "artists": [
-      {
-        "service": "yandex",
-        "service_id": "792",
-        "name": "Queen",
-        "genres": ["rock"],
-        "cover": "https://..."
-      }
-    ],
-    "playlists": [],
-    "errors": []
-  }
-  ```
-
-> [!NOTE]
-> Если один и тот же трек найден в нескольких сервисах, бэкенд автоматически объединяет их и возвращает в `sources` массив всех доступных сервисов (например `["ЯМ", "SP", "SC"]`), что в точности соответствует бейджам в дизайне карточки трека!
-
-### 3.2. Получение трека по id
-- **Метод:** `GET /api/music/tracks/{service}/{service_id}`
-- **Пример:** `GET /api/music/tracks/yandex/12345`
-
-### 3.3. Информация для плеера (Playback)
-- **Метод:** `GET /api/music/playback/{service}/{service_id}`
-- **Ответ:**
-  ```json
-  {
-    "kind": "youtube_iframe",
-    "ref": "fJ9rUzIMcZQ"
-  }
-  ```
-- **Типы плеера (`kind`):**
-  - `youtube_iframe`: в `ref` передан videoId (можно использовать `<iframe src="https://www.youtube.com/embed/{ref}">` или YouTube IFrame API)
-  - `soundcloud_widget`: в `ref` передан URL трека (виджет `https://w.soundcloud.com/player/?url={encodeURIComponent(ref)}`)
-  - `yandex_iframe`: в `ref` передан `{track_id}/{album_id}`
-  - `spotify_sdk`: в `ref` передан URI трека `spotify:track:...`
-  - `audio_stream`: в `ref` передан локальный URL потока (например, `/api/uploads/1/stream`)
-
----
-
-## 4. Плейлисты (Playlists)
-
-### 4.1. Список плейлистов
-- **Метод:** `GET /api/playlists`
-- **Заголовки:** `Authorization: Bearer <token>` (для гостей возвращает публичные плейлисты)
-- **Ответ (200 OK):**
-  ```json
-  [
+```json
+{
+  "query": "Queen",
+  "tracks": [
     {
-      "id": 1,
-      "name": "Ночные поездки",
-      "description": "Плейлист для ночного города",
-      "cover": "https://...",
-      "tracks_count": 64,
-      "is_public": true
-    }
-  ]
-  ```
-
-### 4.2. Создание плейлиста
-- **Метод:** `POST /api/playlists`
-- **Заголовки:** `Authorization: Bearer <token>`
-- **Тело запроса:**
-  ```json
-  {
-    "name": "Лето 2026",
-    "description": "Любимые треки лета",
-    "cover_url": "https://...",
-    "is_public": false
-  }
-  ```
-
-### 4.3. Получение плейлиста с треками
-- **Метод:** `GET /api/playlists/{playlist_id}`
-- **Ответ (200 OK):**
-  ```json
-  {
-    "id": 1,
-    "name": "Ночные поездки",
-    "cover": "https://...",
-    "tracks_count": 2,
-    "tracks": [
-      {
-        "id": 10,
-        "playlist_id": 1,
-        "service": "yandex",
-        "service_id": "123",
-        "title": "Радиовышка",
-        "artist": "Low Tower",
-        "cover": "https://...",
-        "duration": 238,
-        "position": 0
-      }
-    ]
-  }
-  ```
-
-### 4.4. Добавление трека в плейлист
-- **Метод:** `POST /api/playlists/{playlist_id}/tracks`
-- **Тело запроса:**
-  ```json
-  {
-    "service": "spotify",
-    "service_id": "4cOdK2wGLETKBW3PvgPWqT",
-    "title": "Never Gonna Give You Up",
-    "artist": "Rick Astley",
-    "duration": 213,
-    "cover_url": "https://..."
-  }
-  ```
-
-### 4.5. Удаление трека из плейлиста
-- **Метод:** `DELETE /api/playlists/{playlist_id}/tracks/{track_id}`
-
-### 4.6. Изменение порядка треков (Drag & Drop Reorder)
-- **Метод:** `PUT /api/playlists/{playlist_id}/reorder`
-- **Тело запроса:**
-  ```json
-  {
-    "track_ids": [12, 10, 11]
-  }
-  ```
-
-### 4.7. Удаление плейлиста
-- **Метод:** `DELETE /api/playlists/{playlist_id}`
-
----
-
-## 5. Избранное (Favorites / Лайки)
-
-### 5.1. Получить список любимых треков
-- **Метод:** `GET /api/favorites/tracks`
-- **Заголовки:** `Authorization: Bearer <token>`
-- **Ответ:** Список `Track[]`, где у каждого `liked: true`.
-
-### 5.2. Добавить трек в избранное (Поставить лайк)
-- **Метод:** `POST /api/favorites/tracks`
-- **Заголовки:** `Authorization: Bearer <token>`
-- **Тело запроса:**
-  ```json
-  {
-    "service": "yandex",
-    "service_id": "101",
-    "title": "Радиовышка",
-    "artist": "Low Tower",
-    "duration": 238,
-    "sources": ["ЯМ", "SP", "SC"]
-  }
-  ```
-
-### 5.3. Удалить трек из избранного (Снять лайк)
-- **Метод:** `DELETE /api/favorites/tracks/{service}/{service_id}`
-
-### 5.4. Быстрая проверка лайков для текущего экрана
-- **Метод:** `GET /api/favorites/check`
-- **Ответ:**
-  ```json
-  {
-    "liked_keys": ["yandex:101", "spotify:4cOdK..."]
-  }
-  ```
-
----
-
-## 6. История, Рекомендации и Волна Дня
-
-### 6.1. Зафиксировать прослушивание трека
-- **Метод:** `POST /api/history`
-- **Тело запроса:**
-  ```json
-  {
-    "service": "yandex",
-    "service_id": "101",
-    "title": "Радиовышка",
-    "artist": "Low Tower",
-    "album": "Сигнал 404",
-    "duration": 238
-  }
-  ```
-
-### 6.2. "Продолжить слушать" (Виджет ContinueListening)
-- **Метод:** `GET /api/history/albums?limit=6`
-- **Ответ (200 OK):** Список `Album[]`:
-  ```json
-  [
-    {
-      "id": 1,
+      "id": 87491164,
+      "track_key": "yandex:87491164:16916643",
       "service": "yandex",
-      "service_id": "alb_5",
-      "title": "Сигнал 404",
-      "subtitle": "Low Tower · альбом",
-      "cover": ""
+      "service_id": "87491164:16916643",
+      "title": "Queen",
+      "artist": "KVPV",
+      "artists": ["KVPV"],
+      "artist_ids": ["5801667"],
+      "album": "Queen",
+      "cover": "https://avatars.yandex.net/get-music-content/13043189/18a7b164.a.16916643-2/400x400",
+      "artwork_url": "https://avatars.yandex.net/get-music-content/13043189/18a7b164.a.16916643-2/400x400",
+      "duration": 157,
+      "duration_ms": 157710,
+      "sources": ["ЯМ"],
+      "source": "ЯМ",
+      "is_playable": true,
+      "edited": false,
+      "liked": false,
+      "playback": {
+        "kind": "yandex_iframe",
+        "ref": "87491164/16916643"
+      },
+      "direct_audio_url": null,
+      "stream_url": "/api/music/tracks/yandex/87491164:16916643/stream",
+      "external_url": "https://music.yandex.ru/album/16916643/track/87491164"
     }
-  ]
-  ```
-
-### 6.3. "Рекомендации для вас" (Виджет Recommendations)
-- **Метод:** `GET /api/recommendations?limit=10`
-- **Описание:** Умный генератор персональной ленты на основе истории и любимых артистов из всех сервисов.
-- **Ответ:** Список `Track[]` со всеми свойствами, включая `sources: ["ЯМ", "SP", "SC"]`, `duration`, `cover`, `liked`, `edited`.
-
-### 6.4. "Волна дня" (Виджет WaveOfDay)
-- **Метод:** `GET /api/wave`
-- **Ответ (200 OK):**
-  ```json
-  {
-    "date": "03.11",
-    "title": "Эфир на закате",
-    "description": "Собранный поток из Яндекс Музыки, Spotify, SoundCloud и YouTube...",
-    "trackCount": 38,
-    "duration": 4389,
-    "tracks": [...]
-  }
-  ```
-
----
-
-## 7. Своя музыка (Own Music & Uploads)
-
-### 7.1. Список загруженных файлов
-- **Метод:** `GET /api/uploads`
-- **Заголовки:** `Authorization: Bearer <token>`
-- **Ответ (200 OK):** Массив `UserFile[]`, полностью соответствующий интерфейсу фронтенда:
-  ```json
-  [
+  ],
+  "albums": [
     {
-      "id": 1,
-      "name": "демо_гараж_v3",
-      "type": "WAV",
-      "duration": 171,
-      "size": 31,
-      "audio_url": "/api/uploads/1/stream",
-      "is_edited": false
+      "id": 16916643,
+      "service": "yandex",
+      "service_id": "16916643",
+      "title": "Queen",
+      "subtitle": "KVPV · альбом",
+      "artist": "KVPV",
+      "year": 2021,
+      "cover": "https://avatars.yandex.net/get-music-content/13043189/18a7b164.a.16916643-2/400x400",
+      "artwork_url": "https://avatars.yandex.net/get-music-content/13043189/18a7b164.a.16916643-2/400x400",
+      "external_url": "https://music.yandex.ru/album/16916643",
+      "tracks_count": 1,
+      "tracks": null
     }
-  ]
-  ```
-
-### 7.2. Загрузка файла
-- **Метод:** `POST /api/uploads`
-- **Content-Type:** `multipart/form-data`
-- **Поля формы:**
-  - `file`: бинарный файл (`.mp3`, `.wav`, `.flac`, `.ogg`, `.m4a`)
-  - `title` (опционально): название трека
-  - `artist` (опционально): исполнитель
-- **Ответ (201 Created):** Объект `UserFile`.
-
-### 7.3. Стриминг аудио и перемотка (Scrubber)
-- **Метод:** `GET /api/uploads/{id}/stream`
-- **Поддержка Range:** Поддерживает заголовок `Range: bytes=START-END` и возвращает `206 Partial Content`.
-  Это обеспечивает мгновенную и плавную перемотку в браузере в теге `<audio src="/api/uploads/{id}/stream">`!
-
-### 7.4. Удаление файла
-- **Метод:** `DELETE /api/uploads/{id}`
-
----
-
-## 8. Аудиоредактор (Audio Editor)
-
-Позволяет обрезать треки и накладывать аудио эффекты на сервере с сохранением результата.
-
-### 8.1. Обрезка трека (Trim)
-- **Метод:** `POST /api/editor/trim`
-- **Тело запроса:**
-  ```json
-  {
-    "upload_id": 1,
-    "start_sec": 15.0,
-    "end_sec": 45.5,
-    "save_as_new": true,
-    "new_name": "демо_гараж_обрезанный"
-  }
-  ```
-- **Ответ:** Обновлённый или новый объект `UserFile` с флагом `is_edited: true`.
-
-### 8.2. Наложение аудио эффектов
-- **Метод:** `POST /api/editor/effects`
-- **Тело запроса:**
-  ```json
-  {
-    "upload_id": 1,
-    "fade_in_sec": 1.5,
-    "fade_out_sec": 2.0,
-    "volume_gain_db": 3.0,
-    "bass_boost_db": 4.5,
-    "speed_factor": 1.05,
-    "normalize": true,
-    "reverse": false,
-    "echo_delay_sec": 0.25,
-    "echo_decay": 0.35,
-    "save_as_new": true,
-    "new_name": "демо_гараж_эффекты"
-  }
-  ```
-- **Параметры эффектов:**
-  - `fade_in_sec`: длительность нарастания громкости в секундах
-  - `fade_out_sec`: длительность затухания в секундах
-  - `volume_gain_db`: усиление/ослабление громкости в дБ (от -30 до +30)
-  - `bass_boost_db`: усиление басов (низких частот) в дБ (от -12 до +24)
-  - `speed_factor`: изменение скорости воспроизведения (например, `0.85` — slowed, `1.2` — speedup)
-  - `normalize`: нормализация пикового уровня (true/false)
-  - `reverse`: реверс аудио дорожки задом наперёд (true/false)
-  - `echo_delay_sec`: задержка эхо в секундах
-  - `echo_decay`: коэффициент затухания эхо (от 0.0 до 1.0)
-
-### 8.3. Полный конвейер редактирования (Process)
-- **Метод:** `POST /api/editor/process`
-- **Тело запроса:** Совмещает обрезку, все эффекты и конвертацию формата (`output_format`: "WAV", "MP3", "FLAC", "OGG").
-
----
-
-## 9. Как использовать в коде фронтенда
-
-Все методы уже реализованы и типизированы в [`frontend/src/shared/api.ts`](file:///c:/Users/Leo/Desktop/music-thingy/frontend/src/shared/api.ts).
-
-### Пример в компоненте React:
-
-```tsx
-import { useEffect, useState } from "react";
-import {
-  fetchServices,
-  fetchRecommendations,
-  fetchWave,
-  fetchContinueListening,
-  fetchUploads,
-  uploadMusicFile,
-  trimAudio,
-  addFavoriteTrack,
-  removeFavoriteTrack,
-} from "../shared/api.ts";
-import type { Track, UserFile, Service, Wave, Album } from "../shared/types.ts";
-
-function MyMusicDashboard() {
-  const [services, setServices] = useState<Service[]>([]);
-  const [recommendations, setRecommendations] = useState<Track[]>([]);
-  const [wave, setWave] = useState<Wave | null>(null);
-  const [albums, setAlbums] = useState<Album[]>([]);
-  const [files, setFiles] = useState<UserFile[]>([]);
-
-  useEffect(() => {
-    // Загрузка реальных данных с бэкенда
-    fetchServices().then(setServices);
-    fetchRecommendations().then(setRecommendations);
-    fetchWave().then(setWave);
-    fetchContinueListening().then(setAlbums);
-    fetchUploads().then(setFiles);
-  }, []);
-
-  async function handleToggleLike(track: Track) {
-    if (track.liked) {
-      await removeFavoriteTrack(track.source, String(track.id));
-    } else {
-      await addFavoriteTrack(track);
-    }
-  }
-
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const uploaded = await uploadMusicFile(file);
-    setFiles((prev) => [uploaded, ...prev]);
-  }
-
-  async function handleTrim(fileId: number) {
-    const trimmed = await trimAudio(fileId, 0, 30, "Мой обрезанный рингтон");
-    setFiles((prev) => [trimmed, ...prev]);
-  }
-
-  // ... рендер компонентов
+  ],
+  "artists": [],
+  "playlists": [],
+  "errors": []
 }
 ```
+
+---
+
+### 2.3. Получение информации о треке
+- **Маршрут:** `GET /api/music/tracks/{service}/{service_id}`
+- **Параметры пути:**
+  - `service`: Код или имя сервиса (например `yandex`, `ЯМ`).
+  - `service_id`: Идентификатор трека в сервисе (для Яндекса — `track_id` или `track_id:album_id`).
+- **Ответ (200 OK):**
+```json
+{
+  "id": 178529,
+  "track_key": "yandex:178529:21940",
+  "service": "yandex",
+  "service_id": "178529:21940",
+  "title": "Numb",
+  "artist": "Linkin Park",
+  "artists": ["Linkin Park"],
+  "artist_ids": ["36800"],
+  "album": "Meteora",
+  "cover": "https://avatars.yandex.net/get-music-content/142001/a92a262f.a.21940-7/400x400",
+  "artwork_url": "https://avatars.yandex.net/get-music-content/142001/a92a262f.a.21940-7/400x400",
+  "duration": 187,
+  "duration_ms": 187520,
+  "sources": ["ЯМ"],
+  "source": "ЯМ",
+  "is_playable": true,
+  "edited": false,
+  "liked": false,
+  "playback": {
+    "kind": "yandex_iframe",
+    "ref": "178529/21940",
+    "direct_audio_url": "https://api.music.yandex.net/get-mp3/..."
+  },
+  "direct_audio_url": "https://api.music.yandex.net/get-mp3/...",
+  "stream_url": "/api/music/tracks/yandex/178529:21940/stream",
+  "external_url": "https://music.yandex.ru/album/21940/track/178529"
+}
+```
+
+---
+
+### 2.4. Параметры воспроизведения трека (Playback)
+- **Маршрут:** `GET /api/music/playback/{service}/{service_id}`
+- **Описание:** Возвращает тип плеера (`yandex_iframe`, `spotify_sdk`, `soundcloud_widget`, `youtube_iframe`, `direct_url`) и его референс.
+- **Ответ (200 OK):**
+```json
+{
+  "kind": "yandex_iframe",
+  "ref": "178529/21940",
+  "direct_audio_url": "https://api.music.yandex.net/get-mp3/..."
+}
+```
+
+---
+
+### 2.5. Стриминг аудиодорожки
+- **Маршрут:** `GET /api/music/tracks/{service}/{service_id}/stream`
+- **Query параметры:**
+  - `redirect` (bool, по умолчанию `false`):
+    - При `false` сервер проксирует аудиопоток с поддержкой HTTP Range (`206 Partial Content`), что позволяет использовать `<audio src="/api/music/tracks/yandex/178529:21940/stream">` с мгновенной перемоткой без проблем с CORS.
+    - При `true` сервер возвращает `307 Temporary Redirect` сразу на прямую ссылку CDN провайдера.
+
+---
+
+### 2.6. Получение информации об альбоме
+- **Маршрут:** `GET /api/music/albums/{service}/{service_id}`
+- **Описание:** Возвращает информацию об альбоме и список входящих в него треков.
+- **Ответ (200 OK):**
+```json
+{
+  "id": 21940,
+  "service": "yandex",
+  "service_id": "21940",
+  "title": "Meteora",
+  "subtitle": "Linkin Park · альбом",
+  "artist": "Linkin Park",
+  "year": 2003,
+  "cover": "https://avatars.yandex.net/get-music-content/142001/a92a262f.a.21940-7/400x400",
+  "artwork_url": "https://avatars.yandex.net/get-music-content/142001/a92a262f.a.21940-7/400x400",
+  "external_url": "https://music.yandex.ru/album/21940",
+  "tracks_count": 16,
+  "tracks": [ ... ]
+}
+```
+
+---
+
+### 2.7. Получение информации об исполнителе
+- **Маршрут:** `GET /api/music/artists/{service}/{service_id}`
+- **Ответ (200 OK):**
+```json
+{
+  "service": "yandex",
+  "service_id": "36800",
+  "name": "Linkin Park",
+  "genres": ["numetal", "alternative"],
+  "cover": "https://avatars.yandex.net/get-music-content/...",
+  "artwork_url": "https://avatars.yandex.net/get-music-content/...",
+  "external_url": "https://music.yandex.ru/artist/36800"
+}
+```
+
+---
+
+### 2.8. Получение информации о плейлисте
+- **Маршрут:** `GET /api/music/playlists/{service}/{service_id}`
+- **Параметры:**
+  - `service`: `yandex`
+  - `service_id`: `owner_uid:kind` (например `103372440:2131`)
+- **Ответ (200 OK):**
+```json
+{
+  "id": 2131,
+  "service": "yandex",
+  "service_id": "103372440:2131",
+  "name": "Рок",
+  "title": "Рок",
+  "cover": "https://avatars.yandex.net/...",
+  "description": "Лучшие рок-композиции",
+  "owner_name": "Яндекс Музыка",
+  "tracks_count": 108,
+  "external_url": "https://music.yandex.ru/users/music-blog/playlists/2131",
+  "tracks": [ ... ]
+}
+```
+
+---
+
+## 3. Привязка музыкальных сервисов (Подключение аккаунтов)
+
+Пользователь может привязать свои личные аккаунты сервисов (**Яндекс Музыка**, **YouTube Music**, **VK Музыка**). Привязанные сервисы хранятся в базе данных (`UserServiceAccount`), могут временно выключаться/включаться (`toggle`), а также автоматически участвуют в поиске и выгрузке плейлистов/избранного.
+
+### 3.1. Получение статуса подключений пользователя
+- **Маршрут:** `GET /api/services/connections`
+- **Заголовки:** `Authorization: Bearer <jwt_token>`
+- **Ответ (200 OK):**
+```json
+[
+  {
+    "service": "yandex",
+    "code": "ЯМ",
+    "name": "Яндекс Музыка",
+    "connected": true,
+    "is_active": true,
+    "account_name": "Иван Иванов",
+    "account_id": "12345678"
+  },
+  {
+    "service": "youtube",
+    "code": "YT",
+    "name": "YouTube",
+    "connected": false,
+    "is_active": false,
+    "account_name": null,
+    "account_id": null
+  },
+  {
+    "service": "vk",
+    "code": "VK",
+    "name": "VK Музыка",
+    "connected": false,
+    "is_active": false,
+    "account_name": null,
+    "account_id": null
+  }
+]
+```
+
+---
+
+### 3.2. Подключение сервиса
+- **Маршрут:** `POST /api/services/{service}/connect`
+- **Заголовки:** `Authorization: Bearer <jwt_token>`
+- **Параметр пути:** `service` (`yandex`, `youtube`, `vk`)
+
+#### Вариант А: Яндекс Музыка
+- **Тело запроса (JSON):**
+```json
+{
+  "token": "y0_AgAAAA..."
+}
+```
+
+#### Вариант Б: VK Музыка
+- **Тело запроса (JSON):**
+```json
+{
+  "token": "vk1.a.abc...",
+  "user_agent": "VKAndroidApp/8.0-1234 (Android 12; SDK 31; arm64-v8a; ...)"
+}
+```
+*Поле `user_agent` опционально.*
+
+#### Вариант В: YouTube Music (ручной токен или oauth.json)
+- **Тело запроса (JSON):**
+```json
+{
+  "token": "...",
+  "auth_json": "{\"access_token\": \"...\", \"refresh_token\": \"...\"}"
+}
+```
+
+---
+
+### 3.3. YouTube OAuth Device Code Flow (Google TV Flow)
+
+1. **Шаг 1: Получение кода для устройства**
+   - **Маршрут:** `POST /api/services/youtube/oauth/device-code`
+   - **Заголовки:** `Authorization: Bearer <jwt_token>`
+   - **Ответ (200 OK):**
+   ```json
+   {
+     "device_code": "...",
+     "user_code": "ABCD-EFGH",
+     "verification_url": "https://www.google.com/device",
+     "expires_in": 1800,
+     "interval": 5
+   }
+   ```
+   *Фронтенд показывает пользователю `verification_url` и код `user_code`.*
+
+2. **Шаг 2: Опрос готовности токена (Polling)**
+   - **Маршрут:** `POST /api/services/youtube/oauth/poll-token`
+   - **Заголовки:** `Authorization: Bearer <jwt_token>`
+   - **Тело запроса:**
+   ```json
+   {
+     "device_code": "..."
+   }
+   ```
+   - **Ответ (200 OK):** `ServiceConnectionStatus` с `"connected": true`.
+
+---
+
+### 3.4. Отключение сервиса
+- **Маршрут:** `DELETE /api/services/{service}/disconnect`
+- **Заголовки:** `Authorization: Bearer <jwt_token>`
+
+---
+
+### 3.5. Включение / отключение активности привязанного сервиса
+- **Маршрут:** `PUT /api/services/{service}/toggle`
+- **Заголовки:** `Authorization: Bearer <jwt_token>`
+- **Тело запроса:** `{"is_active": false}`
+
+---
+
+### 3.6. Персональные плейлисты пользователя
+- **Маршрут:** `GET /api/music/me/playlists`
+- **Заголовки:** `Authorization: Bearer <jwt_token>`
+- **Query параметры:** `services` (опционально)
+
+---
+
+### 3.7. Избранные треки пользователя
+- **Маршрут:** `GET /api/music/me/favorites`
+- **Заголовки:** `Authorization: Bearer <jwt_token>`
+- **Query параметры:** `services`, `limit`
+
+---
+
+## 4. Подключение новых адаптеров в будущем
+
+Для добавления нового музыкального сервиса (например, Spotify или SoundCloud):
+1. Реализуйте подкласс `BaseMusicAdapter` в `backend/services/music/<service>.py`.
+2. Зарегистрируйте экземпляр адаптера в агрегаторе:
+   ```python
+   from services.music.aggregator import aggregator
+   from services.music.spotify import SpotifyAdapter
+
+   aggregator.register_adapter(SpotifyAdapter(...))
+   ```
+3. Сервис автоматически станет `online: true` в `/api/services` и начнёт участвовать в мультисервисном поиске без изменения логики контроллеров и фронтенда.

@@ -62,17 +62,6 @@ async def get_current_user(
     return user
 
 
-async def get_current_active_user(
-    current_user: User = Depends(get_current_user),
-) -> User:
-    if not current_user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inactive user account",
-        )
-    return current_user
-
-
 async def get_optional_current_user(
     token: str | None = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
@@ -87,9 +76,20 @@ async def get_optional_current_user(
         if not user_id_str:
             return None
         user_id = int(user_id_str)
-        stmt = select(User).where(User.id == user_id)
-        res = await db.exec(stmt)
-        user = res.first()
-        return user if user and user.is_active else None
+        statement = select(User).where(User.id == user_id)
+        result = await db.exec(statement)
+        user = result.first()
+        return user if (user and user.is_active) else None
     except Exception:
         return None
+
+
+async def get_current_active_user(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inactive user account",
+        )
+    return current_user

@@ -1,4 +1,21 @@
 from app.schemas.auth import LoginRequest, RefreshTokenRequest, Token
+from app.schemas.music import (
+    AlbumRead,
+    ArtistRead,
+    MusicSearchResponse,
+    PlaybackInfo,
+    PlaylistRead,
+    ServiceErrorRead,
+    TrackRead,
+)
+from app.schemas.service import (
+    ConnectServiceRequest,
+    ServiceConnectionStatus,
+    ServiceStatusRead,
+    ToggleServiceRequest,
+    YouTubeDeviceCodeResponse,
+    YouTubePollTokenRequest,
+)
 from app.schemas.user import UserBase, UserCreate, UserRead
 
 __all__ = [
@@ -8,4 +25,17 @@ __all__ = [
     "UserBase",
     "UserCreate",
     "UserRead",
+    "PlaybackInfo",
+    "TrackRead",
+    "AlbumRead",
+    "ArtistRead",
+    "PlaylistRead",
+    "ServiceErrorRead",
+    "MusicSearchResponse",
+    "ServiceStatusRead",
+    "ServiceConnectionStatus",
+    "ConnectServiceRequest",
+    "ToggleServiceRequest",
+    "YouTubeDeviceCodeResponse",
+    "YouTubePollTokenRequest",
 ]

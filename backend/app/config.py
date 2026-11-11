@@ -1,7 +1,4 @@
-from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
@@ -11,8 +8,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    PROJECT_NAME: str = "Music Aggregator API"
-    VERSION: str = "0.2.0"
+    PROJECT_NAME: str = "Music Thingy API"
+    VERSION: str = "0.1.0"
     DEBUG: bool = True
 
     # Security
@@ -29,6 +26,14 @@ class Settings(BaseSettings):
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = "app_db"
 
+    # Music Services
+    YANDEX_MUSIC_TOKEN: str | None = None
+    YOUTUBE_CLIENT_ID: str | None = None
+    YOUTUBE_CLIENT_SECRET: str | None = None
+    VK_DEFAULT_USER_AGENT: str = "KateMobileAndroid/56 lite-arm64-v8a (Android 11; SDK 30; arm64-v8a; samsung SM-G973F; ru)"
+    DEFAULT_SEARCH_LIMIT: int = 10
+    MAX_SEARCH_LIMIT: int = 50
+
     # CORS
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",
@@ -37,17 +42,6 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://localhost:8000",
     ]
-
-    # File uploads & Audio storage
-    UPLOAD_DIR: str = str(BASE_DIR / "uploads")
-    MAX_UPLOAD_SIZE_BYTES: int = 50 * 1024 * 1024  # 50 MB
-
-    # External Music Services credentials (optional, fallback to mock/public mode if empty)
-    SPOTIFY_CLIENT_ID: str | None = None
-    SPOTIFY_CLIENT_SECRET: str | None = None
-    YOUTUBE_API_KEY: str | None = None
-    SOUNDCLOUD_CLIENT_ID: str | None = None
-    YANDEX_MUSIC_TOKEN: str | None = None
 
     @property
     def async_database_url(self) -> str:

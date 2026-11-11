@@ -3,66 +3,83 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import get_optional_current_user
+from app.api.deps import get_current_user, get_optional_current_user
+from app.config import settings
 from app.database import get_db
-from app.models.favorite import FavoriteTrack
-from app.models.preference import UserServicePreference
-from app.models.upload import UserUpload
+from app.models.service_account import UserServiceAccount
 from app.models.user import User
 from app.schemas.music import (
     AlbumRead,
     ArtistRead,
     MusicSearchResponse,
     PlaybackInfo,
-    PlaylistSearchResult,
+    PlaylistRead,
+    ServiceErrorRead,
     TrackRead,
 )
+from app.schemas.service import ServiceStatusRead
 from services.music.aggregator import aggregator
-from services.music.dto import (
-    CODE_TO_SERVICE_MAP,
-    SERVICE_CODE_MAP,
-    AlbumDTO,
-    ArtistDTO,
-    PlaylistDTO,
-    SearchType,
-    Service,
-    TrackDTO,
-)
+from services.music.base import BaseMusicAdapter
+from services.music.dto import CODE_TO_SERVICE_MAP, SearchType, Service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 
 
+@router.get("/services", response_model=list[ServiceStatusRead])
+async def list_music_services() -> list[ServiceStatusRead]:
+    """Returns the list of music source services and their online status."""
+    statuses = aggregator.get_services_status()
+    return [ServiceStatusRead(**s) for s in statuses]
+
+
 @router.get("/search", response_model=MusicSearchResponse)
 async def search_music(
     q: str = Query(..., min_length=1, description="Search query string"),
-    services: str | None = Query(None, description="Comma-separated services: yandex,spotify,soundcloud,youtube,local"),
+    services: str | None = Query(None, description="Comma-separated services: yandex,youtube,vk,spotify,soundcloud"),
     types: str | None = Query("track,album", description="Comma-separated types: track,album,artist,playlist"),
-    limit: int = Query(10, ge=1, le=50, description="Results limit per service"),
+    limit: int = Query(
+        settings.DEFAULT_SEARCH_LIMIT,
+        ge=1,
+        le=settings.MAX_SEARCH_LIMIT,
+        description="Results limit per service",
+    ),
     current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
     db: AsyncSession = Depends(get_db),
 ) -> MusicSearchResponse:
-    # 1. Resolve enabled services
+    """Search for tracks, albums, artists, and playlists across enabled music services."""
     target_services: list[str] = []
+    user_adapters: dict[Service, BaseMusicAdapter] = {}
+
+    if current_user and current_user.id:
+        stmt = select(UserServiceAccount).where(UserServiceAccount.user_id == current_user.id)
+        res = await db.exec(stmt)
+        user_accounts = {acc.service.lower(): acc for acc in res.all()}
+
+        # Build custom user adapters
+        for srv_name, acc in user_accounts.items():
+            s_enum = CODE_TO_SERVICE_MAP.get(srv_name)
+            if s_enum and acc.is_active:
+                adapter = aggregator.create_user_adapter(s_enum, token=acc.token, extra_data=acc.extra_data)
+                if adapter:
+                    user_adapters[s_enum] = adapter
+
+        if not services and user_accounts:
+            # Filter default services to those active in user settings
+            target_services = [acc.service for acc in user_accounts.values() if acc.is_active]
+
     if services:
         target_services = [s.strip() for s in services.split(",") if s.strip()]
-    elif current_user and current_user.id:
-        stmt = select(UserServicePreference).where(
-            UserServicePreference.user_id == current_user.id,
-            UserServicePreference.is_enabled == True,  # noqa: E712
-        )
-        res = await db.exec(stmt)
-        user_prefs = res.all()
-        if user_prefs:
-            target_services = [p.service for p in user_prefs]
 
     # Parse search types
-    search_types = set()
+    search_types: set[SearchType] = set()
     if types:
         for t in types.split(","):
             t_clean = t.strip().lower()
@@ -77,60 +94,17 @@ async def search_music(
     if not search_types:
         search_types = {SearchType.TRACK}
 
-    # 2. Query external services via aggregator
+    # Query music services via aggregator
     agg_result = await aggregator.search(
         query=q,
         services=target_services or None,
         types=frozenset(search_types),
         limit_per_service=limit,
+        user_adapters=user_adapters or None,
     )
 
-    # 3. Search user's uploaded tracks if local search is requested or by default
-    local_tracks: list[TrackDTO] = []
-    if current_user and current_user.id:
-        upload_stmt = select(UserUpload).where(
-            UserUpload.user_id == current_user.id,
-            UserUpload.title.ilike(f"%{q}%") | UserUpload.artist.ilike(f"%{q}%"),
-        ).limit(limit)
-        upload_res = await db.exec(upload_stmt)
-        uploads = upload_res.all()
-
-        for u in uploads:
-            local_tracks.append(
-                TrackDTO(
-                    service=Service.LOCAL,
-                    service_id=str(u.id),
-                    title=u.title,
-                    artists=(u.artist or "Моя музыка",),
-                    duration_ms=u.duration_seconds * 1000,
-                    playback=None,
-                    direct_audio_url=f"/api/uploads/{u.id}/stream",
-                    artwork_url=u.cover_url,
-                    sources=("ФАЙЛ",),
-                    edited=u.is_edited,
-                )
-            )
-
-    combined_tracks = list(local_tracks) + list(agg_result.tracks)
-
-    # 4. Check user favorites to populate liked flag
-    liked_keys: set[str] = set()
-    if current_user and current_user.id:
-        fav_stmt = select(FavoriteTrack).where(FavoriteTrack.user_id == current_user.id)
-        fav_res = await db.exec(fav_stmt)
-        for fav in fav_res.all():
-            liked_keys.add(f"{fav.service}:{fav.service_id}")
-
-    # 5. Format to frontend TrackRead
-    tracks_out: list[TrackRead] = []
-    for t in combined_tracks:
-        t_dict = t.to_frontend_dict()
-        t_key = f"{t.service.value}:{t.service_id}"
-        t_dict["liked"] = t_key in liked_keys
-        tracks_out.append(TrackRead(**t_dict))
-
+    tracks_out = [TrackRead(**t.to_frontend_dict()) for t in agg_result.tracks]
     albums_out = [AlbumRead(**alb.to_frontend_dict()) for alb in agg_result.albums]
-
     artists_out = [
         ArtistRead(
             service=a.service.value,
@@ -138,25 +112,21 @@ async def search_music(
             name=a.name,
             genres=list(a.genres),
             cover=str(a.artwork_url) if a.artwork_url else None,
+            artwork_url=str(a.artwork_url) if a.artwork_url else None,
             external_url=str(a.external_url) if a.external_url else None,
         )
         for a in agg_result.artists
     ]
-
-    playlists_out = [
-        PlaylistSearchResult(
-            id=abs(hash(f"{p.service.value}:{p.service_id}")) % 10_000_000 + 1,
-            service=p.service.value,
-            service_id=p.service_id,
-            name=p.title,
-            cover=str(p.artwork_url) if p.artwork_url else "",
-            description=p.description,
-            tracks_count=p.tracks_count or (len(p.tracks) if p.tracks else 0),
+    playlists_out = [PlaylistRead(**p.to_frontend_dict()) for p in agg_result.playlists]
+    errors_out = [
+        ServiceErrorRead(
+            service=err.service.value,
+            kind=err.kind.value,
+            message=err.message,
+            status_code=err.status_code,
         )
-        for p in agg_result.playlists
+        for err in agg_result.errors
     ]
-
-    errors_out = [err.model_dump() for err in agg_result.errors]
 
     return MusicSearchResponse(
         query=q,
@@ -168,74 +138,91 @@ async def search_music(
     )
 
 
+@router.get("/me/playlists", response_model=list[PlaylistRead])
+async def get_my_playlists(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+) -> list[PlaylistRead]:
+    """Retrieve user's library playlists from all connected external services."""
+    stmt = select(UserServiceAccount).where(
+        UserServiceAccount.user_id == current_user.id,
+        UserServiceAccount.is_active == True,  # noqa: E712
+    )
+    res = await db.exec(stmt)
+    accounts = res.all()
+
+    all_playlists: list[PlaylistRead] = []
+    for acc in accounts:
+        pls = await aggregator.get_user_playlists(
+            service=acc.service,
+            token=acc.token,
+            extra_data=acc.extra_data,
+            account_id=acc.account_id,
+        )
+        for p in pls:
+            all_playlists.append(PlaylistRead(**p.to_frontend_dict()))
+
+    return all_playlists
+
+
+@router.get("/me/favorites", response_model=list[TrackRead])
+async def get_my_favorites(
+    current_user: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+) -> list[TrackRead]:
+    """Retrieve user's favorite / liked tracks from all connected external services."""
+    stmt = select(UserServiceAccount).where(
+        UserServiceAccount.user_id == current_user.id,
+        UserServiceAccount.is_active == True,  # noqa: E712
+    )
+    res = await db.exec(stmt)
+    accounts = res.all()
+
+    all_tracks: list[TrackRead] = []
+    for acc in accounts:
+        tracks = await aggregator.get_user_favorites(
+            service=acc.service,
+            token=acc.token,
+            extra_data=acc.extra_data,
+            account_id=acc.account_id,
+            limit=limit,
+        )
+        for t in tracks:
+            t_dict = t.to_frontend_dict()
+            t_dict["liked"] = True
+            all_tracks.append(TrackRead(**t_dict))
+
+    return all_tracks
+
+
 @router.get("/tracks/{service}/{service_id}", response_model=TrackRead)
 async def get_track(
     service: str,
     service_id: str,
     current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
-    db: AsyncSession = Depends(get_db),
 ) -> TrackRead:
-    # Check local tracks
-    if service.lower() in ("local", "loc", "файл") and current_user and current_user.id:
-        try:
-            up_id = int(service_id)
-            stmt = select(UserUpload).where(UserUpload.id == up_id, UserUpload.user_id == current_user.id)
-            res = await db.exec(stmt)
-            upload = res.first()
-            if upload:
-                return TrackRead(
-                    id=upload.id or 1,
-                    track_key=f"local:{upload.id}",
-                    service="local",
-                    service_id=str(upload.id),
-                    title=upload.title,
-                    artist=upload.artist,
-                    cover=upload.cover_url or "",
-                    duration=upload.duration_seconds,
-                    sources=["ФАЙЛ"],
-                    source="ФАЙЛ",
-                    edited=upload.is_edited,
-                    liked=False,
-                    direct_audio_url=f"/api/uploads/{upload.id}/stream",
-                )
-        except ValueError:
-            pass
-
+    """Retrieve full track metadata and playback parameters by service and service ID."""
     track_dto = await aggregator.get_track(service, service_id)
     if not track_dto:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Track {service_id} on {service} not found",
+            detail=f"Track '{service_id}' on service '{service}' not found",
         )
 
-    t_dict = track_dto.to_frontend_dict()
-    if current_user and current_user.id:
-        fav_stmt = select(FavoriteTrack).where(
-            FavoriteTrack.user_id == current_user.id,
-            FavoriteTrack.service == track_dto.service.value,
-            FavoriteTrack.service_id == track_dto.service_id,
-        )
-        fav_res = await db.exec(fav_stmt)
-        t_dict["liked"] = fav_res.first() is not None
-
-    return TrackRead(**t_dict)
+    return TrackRead(**track_dto.to_frontend_dict())
 
 
 @router.get("/playback/{service}/{service_id}", response_model=PlaybackInfo)
-async def get_playback(
+async def get_playback_info(
     service: str,
     service_id: str,
     current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
 ) -> PlaybackInfo:
-    if service.lower() in ("local", "loc", "файл"):
-        return PlaybackInfo(
-            kind="audio_stream",
-            ref=f"/api/uploads/{service_id}/stream",
-        )
-
+    """Retrieve playback parameters (iframe ref, SDK ref, direct audio url) for a track."""
     track_dto = await aggregator.get_track(service, service_id)
-    if not track_dto or not track_dto.playback:
-        # Fallback ref based on service
+    if not track_dto:
+        # Fallback ref based on known service format if track metadata cannot be resolved
         s_enum = CODE_TO_SERVICE_MAP.get(service.lower())
         if s_enum == Service.YOUTUBE:
             return PlaybackInfo(kind="youtube_iframe", ref=service_id)
@@ -245,33 +232,115 @@ async def get_playback(
             return PlaybackInfo(kind="spotify_sdk", ref=f"spotify:track:{service_id}")
         elif s_enum == Service.YANDEX:
             return PlaybackInfo(kind="yandex_iframe", ref=service_id)
+        elif s_enum == Service.VK:
+            return PlaybackInfo(kind="direct_url", ref=service_id)
 
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Playback info not available for track {service_id} on {service}",
+            detail=f"Track '{service_id}' on service '{service}' not found",
         )
 
-    return PlaybackInfo(kind=track_dto.playback.kind.value, ref=track_dto.playback.ref)
+    if track_dto.playback:
+        return PlaybackInfo(
+            kind=track_dto.playback.kind.value,
+            ref=track_dto.playback.ref,
+            direct_audio_url=str(track_dto.direct_audio_url) if track_dto.direct_audio_url else None,
+        )
+
+    if track_dto.direct_audio_url:
+        return PlaybackInfo(
+            kind="direct_url",
+            ref=str(track_dto.direct_audio_url),
+            direct_audio_url=str(track_dto.direct_audio_url),
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Playback information not available for track '{service_id}' on service '{service}'",
+    )
+
+
+@router.get("/tracks/{service}/{service_id}/stream")
+async def stream_track_audio(
+    service: str,
+    service_id: str,
+    request: Request,
+    redirect: bool = Query(False, description="Redirect directly to CDN audio URL"),
+):
+    """Stream audio content for a track with HTTP Range header support or redirect to direct audio URL."""
+    track_dto = await aggregator.get_track(service, service_id)
+    if not track_dto or not track_dto.direct_audio_url:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Audio stream not available for track '{service_id}' on service '{service}'",
+        )
+
+    audio_url = str(track_dto.direct_audio_url)
+
+    if redirect:
+        return RedirectResponse(url=audio_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+    headers = {}
+    range_header = request.headers.get("range")
+    if range_header:
+        headers["Range"] = range_header
+
+    client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+    req = client.build_request("GET", audio_url, headers=headers)
+    r = await client.send(req, stream=True)
+
+    if r.status_code >= 400:
+        await r.aclose()
+        await client.aclose()
+        raise HTTPException(
+            status_code=r.status_code,
+            detail="Failed to stream audio from provider CDN",
+        )
+
+    async def aiter_stream():
+        try:
+            async for chunk in r.aiter_bytes():
+                yield chunk
+        finally:
+            await r.aclose()
+            await client.aclose()
+
+    resp_headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'inline; filename="{track_dto.service_id}.mp3"',
+    }
+    for h in ("content-range", "content-length", "content-type"):
+        if h in r.headers:
+            resp_headers[h.title()] = r.headers[h]
+
+    return StreamingResponse(
+        aiter_stream(),
+        status_code=r.status_code,
+        media_type=r.headers.get("content-type", "audio/mpeg"),
+        headers=resp_headers,
+    )
 
 
 @router.get("/albums/{service}/{service_id}", response_model=AlbumRead)
 async def get_album(service: str, service_id: str) -> AlbumRead:
+    """Retrieve album details and tracklist by service and album ID."""
     alb_dto = await aggregator.get_album(service, service_id)
     if not alb_dto:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Album {service_id} on {service} not found",
+            detail=f"Album '{service_id}' on service '{service}' not found",
         )
     return AlbumRead(**alb_dto.to_frontend_dict())
 
 
 @router.get("/artists/{service}/{service_id}", response_model=ArtistRead)
 async def get_artist(service: str, service_id: str) -> ArtistRead:
+    """Retrieve artist profile and details by service and artist ID."""
     art_dto = await aggregator.get_artist(service, service_id)
     if not art_dto:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Artist {service_id} on {service} not found",
+            detail=f"Artist '{service_id}' on service '{service}' not found",
         )
     return ArtistRead(
         service=art_dto.service.value,
@@ -279,5 +348,18 @@ async def get_artist(service: str, service_id: str) -> ArtistRead:
         name=art_dto.name,
         genres=list(art_dto.genres),
         cover=str(art_dto.artwork_url) if art_dto.artwork_url else None,
+        artwork_url=str(art_dto.artwork_url) if art_dto.artwork_url else None,
         external_url=str(art_dto.external_url) if art_dto.external_url else None,
     )
+
+
+@router.get("/playlists/{service}/{service_id}", response_model=PlaylistRead)
+async def get_playlist(service: str, service_id: str) -> PlaylistRead:
+    """Retrieve playlist details and tracklist by service and playlist ID."""
+    pl_dto = await aggregator.get_playlist(service, service_id)
+    if not pl_dto:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Playlist '{service_id}' on service '{service}' not found",
+        )
+    return PlaylistRead(**pl_dto.to_frontend_dict())
