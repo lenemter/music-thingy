@@ -3,6 +3,9 @@ import type { CSSProperties } from "react";
 import Grain from "../entities/Grain.tsx";
 import { formatTime } from "../shared/format.ts";
 import { setTrackLiked } from "../shared/favorites.ts";
+import { openAddToPlaylist } from "../shared/playlists.ts";
+import { showToast } from "../shared/toast.ts";
+import PlusIcon from "../shared/icons/plus.svg?react";
 import type { PlayerControls } from "../shared/player/usePlayer.ts";
 import type { Service, Track } from "../shared/types.ts";
 import HeartIcon from "../shared/icons/heart.svg?react";
@@ -22,6 +25,8 @@ type PlayerProps = {
     track: Track
     player: PlayerControls
     services: Service[]
+    isQueueOpen: boolean
+    onToggleQueue: () => void
 }
 
 function rangeStyle(value: number, max: number): CSSProperties {
@@ -29,7 +34,7 @@ function rangeStyle(value: number, max: number): CSSProperties {
     return { "--fill": percent + "%" } as CSSProperties;
 }
 
-function Player({ track, player, services }: PlayerProps) {
+function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerProps) {
     const [isLiked, setIsLiked] = useState(track.liked === true);
     const [dragTime, setDragTime] = useState<number | null>(null);
     const volumeBeforeMute = useRef(0.7);
@@ -91,7 +96,7 @@ function Player({ track, player, services }: PlayerProps) {
         }
     }
 
-    const repeatTitle = player.repeat === "one" ? "Повтор трека" : player.repeat === "all" ? "Повтор очереди" : "Повтор выключен";
+    const repeatTitle = player.repeat === "one" ? "Повтор трека включён" : "Повторять трек";
 
     return (
         <footer className="player">
@@ -122,13 +127,24 @@ function Player({ track, player, services }: PlayerProps) {
                 <button className="icon-button" title={isLiked ? "Убрать из избранного" : "В избранное"} onClick={toggleLike}>
                     {isLiked ? <HeartFilledIcon width={35} height={35}/> : <HeartIcon width={35} height={35}/>}
                 </button>
+                <button className="icon-button" title="Добавить в плейлист" onClick={() => openAddToPlaylist(track)}>
+                    <PlusIcon width={24} height={24}/>
+                </button>
             </div>
 
             <div className="player-center">
                 <div className="player-controls">
+                    {/* В волне порядок и так случайный — кнопку прячем, но оставляем место, чтобы кнопки не съезжали */}
                     <button
-                        className={player.isShuffle ? "icon-button mode active" : "icon-button mode"}
+                        className={[
+                            "icon-button mode",
+                            player.isShuffle ? "active" : "",
+                            player.isEndless ? "mode-hidden" : "",
+                        ].filter(Boolean).join(" ")}
                         title={player.isShuffle ? "Перемешивание включено" : "Перемешать"}
+                        aria-hidden={player.isEndless}
+                        tabIndex={player.isEndless ? -1 : undefined}
+                        disabled={player.isEndless}
                         onClick={player.toggleShuffle}
                     >
                         <ShuffleIcon/>
@@ -149,10 +165,10 @@ function Player({ track, player, services }: PlayerProps) {
                     <button
                         className={player.repeat !== "off" ? "icon-button mode active" : "icon-button mode"}
                         title={repeatTitle}
+                        aria-pressed={player.repeat === "one"}
                         onClick={player.cycleRepeat}
                     >
                         <RepeatIcon/>
-                        {player.repeat === "one" && <span className="repeat-one">1</span>}
                     </button>
                 </div>
 
@@ -176,8 +192,15 @@ function Player({ track, player, services }: PlayerProps) {
             </div>
 
             <div className="player-right">
-                <button className="icon-button" title="Редактор"><EditorIcon/></button>
-                <button className="icon-button" title="Очередь"><QueueIcon/></button>
+                <button className="icon-button" title="Редактор" onClick={() => showToast("Раздел в разработке")}><EditorIcon/></button>
+                <button
+                    className={isQueueOpen ? "icon-button queue-toggle active" : "icon-button queue-toggle"}
+                    title="Очередь"
+                    aria-expanded={isQueueOpen}
+                    onClick={onToggleQueue}
+                >
+                    <QueueIcon/>
+                </button>
                 <button className="icon-button" title={player.volume > 0 ? "Выключить звук" : "Включить звук"} onClick={toggleMute}>
                     {player.volume > 0 ? <VolumeIcon/> : <VolumeOffIcon/>}
                 </button>

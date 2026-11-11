@@ -1,8 +1,8 @@
 import type { Track, UserFile } from "../types.ts";
 import type { TrackRead } from "./types.ts";
 import { getServiceName } from "./services.ts";
-import { getOverride } from "../library.ts";
 import { coverUrl, fallbackCover } from "../coverTemplates.ts";
+import { isLikeHidden, isTrackLiked } from "../favorites.ts";
 
 function getArtist(item: TrackRead) {
     if (item.artist && item.artist.trim() !== "") {
@@ -15,19 +15,18 @@ function getArtist(item: TrackRead) {
 }
 
 export function trackFromRead(item: TrackRead): Track {
-    const override = item.service === "local" ? getOverride(item.service_id) : undefined;
-    const cover = override?.cover === null ? "" : coverUrl(override?.cover ?? item.cover);
+    const cover = coverUrl(item.cover);
 
     return {
         id: item.track_key ?? item.service + ":" + item.service_id,
-        title: override?.title ?? item.title,
-        artist: override?.artist ?? getArtist(item),
+        title: item.title,
+        artist: getArtist(item),
         cover: cover || fallbackCover(item.service_id),
         duration: item.duration,
         sources: item.sources.length > 0 ? item.sources : [item.source],
         source: item.source,
         edited: item.edited,
-        liked: item.liked,
+        liked: (item.liked && !isLikeHidden(item.service, item.service_id)) || isTrackLiked(item.service, item.service_id),
         service: item.service,
         serviceId: item.service_id,
         audioUrl: item.direct_audio_url ?? undefined,
@@ -45,6 +44,7 @@ export function trackFromFile(file: UserFile): Track {
         sources: ["ФАЙЛ"],
         source: "ФАЙЛ",
         edited: file.isEdited,
+        liked: isTrackLiked("local", String(file.id)),
         service: "local",
         serviceId: String(file.id),
         audioUrl: file.audioUrl,

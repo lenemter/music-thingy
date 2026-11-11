@@ -56,18 +56,3 @@ export function fallbackCover(id: number | string) {
     }
     return coverTemplates[sum % coverTemplates.length];
 }
-
-export function templateImage(index: number): Promise<Blob> {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => {
-            const canvas = document.createElement("canvas");
-            canvas.width = 320;
-            canvas.height = 320;
-            canvas.getContext("2d")?.drawImage(img, 0, 0, 320, 320);
-            canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("Не удалось подготовить обложку"))), "image/jpeg", 0.9);
-        };
-        img.onerror = () => reject(new Error("Не удалось открыть обложку"));
-        img.src = coverTemplates[index];
-    });
-}

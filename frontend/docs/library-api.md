@@ -1,49 +1,52 @@
 # Медиатека — что ждёт фронтенд
 
-Фронтенд уже умеет менять у загруженного трека название, исполнителя и обложку. Пока эндпоинтов ниже нет,
-изменения сохраняются только в браузере пользователя (`localStorage`, ключ `signal-library`). Как только бэкенд их добавит,
-фронтенд сам начнёт сохранять на сервер и уберёт локальные копии — менять фронтенд не придётся.
+Сейчас в бэкенде нет эндпоинтов для своей музыки, поэтому фронтенд хранит загруженные файлы, название, исполнителя
+и обложку в браузере (IndexedDB, база `signal-library`, отдельно для каждого пользователя по email).
+Минусы: музыка видна только в этом браузере и пропадёт при очистке данных сайта.
 
-Все запросы — с `Authorization: Bearer <access>`, только для своих загрузок.
+Чтобы перенести медиатеку на сервер, нужны эндпоинты (все с `Authorization: Bearer <access>`):
 
-## `UserFileRead` — добавить поля
-
-```json
-{ "artist": "Low Tower", "cover_url": "/api/uploads/12/cover" }
-```
-
-`artist` уже хранится в `UserUpload.artist`, его нужно просто отдать. `cover_url` — `null`, если обложки нет.
-
-## `PATCH /api/uploads/{id}`
+- `GET /api/uploads` — список `UserFileRead`
+- `POST /api/uploads` — `multipart/form-data`: `file`, `title`, `artist`
+- `DELETE /api/uploads/{id}`
+- `GET /api/uploads/{id}/stream` — аудио с поддержкой Range, без авторизации (для `<audio src>`)
+- `PATCH /api/uploads/{id}` — `{ "title": "...", "artist": "..." }`
+- `PUT /api/uploads/{id}/cover` — `multipart/form-data`, поле `file` (JPEG); `DELETE` — убрать обложку
 
 ```json
-{ "title": "Радиовышка", "artist": "Low Tower" }
+{ "id": 12, "name": "Радиовышка", "artist": "Low Tower", "type": "MP3", "duration": 276, "size": 8.4,
+  "audio_url": "/api/uploads/12/stream", "cover_url": "/api/uploads/12/cover" }
 ```
 
-Ответ — обновлённый `UserFileRead`.
+Обложку из тегов (ID3 `APIC`, FLAC `pictures`, M4A `covr`, OGG `METADATA_BLOCK_PICTURE`) можно доставать через `mutagen`.
+Если её нет, фронтенд выбирает случайную обложку из `src/shared/images/covers`.
 
-## `PUT /api/uploads/{id}/cover`
+## Плейлисты
 
-`multipart/form-data`, поле `file` — картинка (фронтенд шлёт JPEG). Сохранить файл, записать `cover_url`, ответ — `UserFileRead`.
+В медиатеке три вида плейлистов:
 
-## `DELETE /api/uploads/{id}/cover`
+- **«Понравившиеся»**: собирается сам. В него попадают лайки, поставленные у нас, и лайки из подключённых сервисов (`GET /api/music/me/favorites`).
+  Если снять у нас лайк с трека, который лайкнут в сервисе, трек просто скрывается из списка. В самом сервисе лайк остаётся.
+- **Свои плейлисты**: пользователь создаёт, переименовывает и удаляет их сам и добавляет треки кнопкой «+».
+  Пока хранятся в `localStorage` (`signal-playlists:<email>`) как копии треков, поэтому видны только в этом браузере.
+- **Плейлисты из сервисов**: приходят из `GET /api/music/me/playlists`, треки подгружаются из `GET /api/music/playlists/{service}/{id}`
+  (с аккаунтом пользователя, чтобы открывались и закрытые). Последний список кэшируется, и когда сервис отключён, его плейлисты
+  показываются серыми с подписью «Недоступно · подключите …».
 
-Убирает обложку. Ответ `204`.
+Чтобы перенести свои плейлисты и лайки на сервер, нужны:
 
-## `GET /api/uploads/{id}/cover`
-
-Отдаёт картинку обложки (без авторизации, как `/stream`, чтобы работал `<img src>`).
-
-## Обложка из файла при загрузке
-
-`AudioEditor.get_metadata` уже читает `title` и `artist` через `mutagen`. Встроенную обложку тоже можно достать оттуда:
-кадр `APIC` в ID3 (MP3), `pictures` во FLAC, `covr` в M4A, `METADATA_BLOCK_PICTURE` в OGG — и сразу сохранить как обложку загрузки.
-Пока этого нет, фронтенд сам читает обложку из MP3 и FLAC перед загрузкой и отправляет её через `PUT /api/uploads/{id}/cover`.
-Если в файле обложки нет, фронтенд выбирает случайную шаблонную обложку и отправляет её тем же запросом (тоже JPEG).
+- `GET /api/playlists`, `POST /api/playlists` `{ "name": "..." }`, `PATCH /api/playlists/{id}`, `DELETE /api/playlists/{id}`
+- `POST /api/playlists/{id}/tracks` `{ "service": "vk", "service_id": "..." }`, `DELETE /api/playlists/{id}/tracks/{service}/{service_id}`
+- `PUT` / `DELETE /api/music/tracks/{service}/{service_id}/like` — лайк у нас (и, по возможности, в самом сервисе)
 
 ## Где это на фронтенде
 
-- `src/shared/library.ts` — сохранение изменений (сервер или браузер)
+- `src/shared/playlists.ts`, `src/shared/favorites.ts` — свои плейлисты и лайки
+- `src/shared/usePlaylists.ts` — собирает все плейлисты для медиатеки и меню слева
+- `src/entities/PlaylistCover.tsx` — обложка: коллаж из 4 обложек, сгенерированная, «недоступно», заглушка при загрузке
+- `src/widgets/PlaylistView.tsx`, `AddToPlaylistModal.tsx`, `PlaylistNameModal.tsx`
+
+- `src/shared/library.ts` — хранение файлов и правок (сейчас IndexedDB, потом — запросы к серверу)
 - `src/shared/audioTags.ts` — чтение тегов ID3 и FLAC в браузере
 - `src/widgets/TrackEditModal.tsx` — окно редактирования
 - `src/pages/LibraryPage.tsx` — страница «Медиатека»

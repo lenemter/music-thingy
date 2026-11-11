@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { confirmAction } from "../shared/confirm.ts";
 import ServiceLink from "./ServiceLink.tsx";
-import { ApiError, fetchServices, startServiceLink, unlinkService, updateServicePreferences } from "../shared/api.ts";
-import type { LinkStartResponse, ServiceId } from "../shared/music/types.ts";
+import { ApiError, disconnectService, fetchServices, setServiceActive, startDeviceLink } from "../shared/api.ts";
+import { deviceLinkServices } from "../shared/music/services.ts";
+import type { DeviceCode, ServiceId } from "../shared/music/types.ts";
 import type { Service } from "../shared/types.ts";
+import CloseIcon from "../shared/icons/close.svg?react";
 
 type SourcesModalProps = {
     services: Service[]
@@ -22,7 +25,9 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
     const [loadingService, setLoadingService] = useState<ServiceId | null>(null);
     const [isClosing, setIsClosing] = useState(false);
     const [linkingService, setLinkingService] = useState<Service | null>(null);
-    const [session, setSession] = useState<LinkStartResponse | null>(null);
+    const [deviceCode, setDeviceCode] = useState<DeviceCode | null>(null);
+    const [isStarting, setIsStarting] = useState(false);
+    const linkAttempt = useRef(0);
 
     function closeModal() {
         if (isClosing) {
@@ -43,21 +48,10 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
     });
 
     async function toggleService(service: Service) {
-        const enabled = services.filter((item) => item.online).map((item) => item.id);
-        const newEnabled = service.online
-            ? enabled.filter((id) => id !== service.id)
-            : [...enabled, service.id];
-
         setLoadingService(service.id);
         setError("");
         try {
-            const updated = await updateServicePreferences(newEnabled);
-            onUpdate(updated);
-
-            const result = updated.find((item) => item.id === service.id);
-            if (!service.online && result && !result.online) {
-                setError(service.name + " пока не настроен на сервере — привяжите свой аккаунт");
-            }
+            onUpdate(await setServiceActive(service.id, !service.online));
         } catch (err) {
             setError(err instanceof Error ? err.message : "Не удалось сохранить");
         }
@@ -65,20 +59,37 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
     }
 
     async function startLink(service: Service) {
+        linkAttempt.current++;
+        const attempt = linkAttempt.current;
         setLinkingService(service);
-        setSession(null);
+        setDeviceCode(null);
         setError("");
+        const usesCode = deviceLinkServices.includes(service.id);
+        setIsStarting(usesCode);
+        if (!usesCode) {
+            return;
+        }
         try {
-            setSession(await startServiceLink(service.id));
+            const code = await startDeviceLink(service.id);
+            if (attempt === linkAttempt.current) {
+                setDeviceCode(code);
+            }
         } catch (err) {
-            setLinkingService(null);
-            setError(getLinkError(err));
+            if (attempt === linkAttempt.current) {
+                setLinkingService(null);
+                setError(getLinkError(err));
+            }
+        }
+        if (attempt === linkAttempt.current) {
+            setIsStarting(false);
         }
     }
 
     function cancelLink() {
+        linkAttempt.current++;
         setLinkingService(null);
-        setSession(null);
+        setDeviceCode(null);
+        setIsStarting(false);
     }
 
     async function handleLinked() {
@@ -91,10 +102,24 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
     }
 
     async function handleUnlink(service: Service) {
+        const isConfirmed = await confirmAction({
+            title: "Отвязать сервис " + service.name + "?",
+            text: "Его треки перестанут играть, а плейлисты из него станут недоступны. Подключить снова можно в любой момент.",
+            confirmText: "Отвязать",
+            danger: true,
+            icon: "disconnect",
+            details: [
+                ...(service.accountName ? [{ label: "Аккаунт", value: service.accountName }] : []),
+                { label: "Свои плейлисты и лайки", value: "сохранятся", accent: true },
+            ],
+        });
+        if (!isConfirmed) {
+            return;
+        }
         setLoadingService(service.id);
         setError("");
         try {
-            await unlinkService(service.id);
+            await disconnectService(service.id);
             onUpdate(await fetchServices());
         } catch (err) {
             setError(getLinkError(err));
@@ -105,9 +130,11 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
     return (
         <div className={isClosing ? "modal-overlay closing" : "modal-overlay"} onMouseDown={closeModal}>
             <div className="modal" onMouseDown={(event) => event.stopPropagation()}>
-                <div className="modal-header">
-                    <h2>Источники</h2>
-                    <button className="section-link" onClick={closeModal}>ЗАКРЫТЬ</button>
+                <div className="track-edit-header">
+                    <div className="track-edit-heading"><h2>Источники</h2></div>
+                    <button type="button" className="track-edit-close" title="Закрыть" aria-label="Закрыть" onClick={closeModal}>
+                        <CloseIcon width={20} height={20}/>
+                    </button>
                 </div>
                 <p className="modal-text">
                     Привяжите свои аккаунты, чтобы слушать музыку из своих подписок. Включать и выключать сервисы в поиске можно кнопками в строке поиска.
@@ -120,7 +147,7 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
                             <span className="source-item-info">
                                 <span className="source-item-name">{service.name}</span>
                                 <span className="mono">
-                                    {service.linked ? "ваш аккаунт · " + (service.online ? "включён" : "выключен") : "не привязан"}
+                                    {service.linked ? (service.accountName ?? "ваш аккаунт") + " · " + (service.online ? "включён" : "выключен") : "не привязан"}
                                 </span>
                             </span>
 
@@ -134,8 +161,7 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
                                 </button>
                             ) : (
                                 <button
-                                    className="button outline-light small"
-                                    disabled={loadingService !== null || linkingService !== null}
+                                    className={linkingService?.id === service.id ? "button accent small" : "button outline-light small"}
                                     onClick={() => startLink(service)}
                                 >
                                     Привязать
@@ -156,15 +182,15 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
                     ))}
                 </ul>
 
-                {linkingService !== null && session === null && (
+                {linkingService !== null && isStarting && (
                     <p className="modal-text">Готовим вход…</p>
                 )}
 
-                {linkingService !== null && session !== null && (
+                {linkingService !== null && !isStarting && (!deviceLinkServices.includes(linkingService.id) || deviceCode !== null) && (
                     <ServiceLink
-                        key={session.session_id}
+                        key={linkingService.id + (deviceCode?.device_code ?? "")}
                         service={linkingService}
-                        session={session}
+                        deviceCode={deviceCode}
                         onLinked={handleLinked}
                         onRestart={() => startLink(linkingService)}
                         onCancel={cancelLink}

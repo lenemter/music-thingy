@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
+import { confirmAction } from "../shared/confirm.ts";
 import type { DragEvent } from "react";
 import { formatTime } from "../shared/format.ts";
-import { deleteUpload } from "../shared/api.ts";
-import { removeOverride } from "../shared/library.ts";
+import { deleteUpload } from "../shared/library.ts";
 import { fallbackCover } from "../shared/coverTemplates.ts";
 import { AUDIO_ACCEPT, useUploader } from "../shared/useUploader.ts";
 import type { UserFile } from "../shared/types.ts";
@@ -37,13 +37,19 @@ function OwnMusic({ files, playingFileId, onFilesChange, onPlay, onDeleted, onOp
     }
 
     async function handleDelete(file: UserFile) {
-        if (!window.confirm("Удалить «" + file.name + "»? Файл удалится без возможности восстановления.")) {
+        const isConfirmed = await confirmAction({
+            title: "Удалить «" + file.name + "»?",
+            text: "Файл и его правки удалятся из этого браузера навсегда. Восстановить не получится.",
+            confirmText: "Удалить",
+            danger: true,
+            icon: "delete",
+        });
+        if (!isConfirmed) {
             return;
         }
         setDeleteError("");
         try {
             await deleteUpload(file.id);
-            removeOverride(file.id);
             onDeleted(file);
             onFilesChange(files.filter((item) => item.id !== file.id));
         } catch (err) {

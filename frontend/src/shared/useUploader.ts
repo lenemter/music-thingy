@@ -1,10 +1,8 @@
 import { useState } from "react";
-import { uploadAudioFile } from "./api.ts";
-import { readAudioTags } from "./audioTags.ts";
+import { readAudioTags, resizeImage } from "./audioTags.ts";
 import type { AudioTags } from "./audioTags.ts";
-import { saveTrackInfo } from "./library.ts";
-import { randomTemplate } from "./coverTemplates.ts";
-import type { TrackInfo } from "./library.ts";
+import { uploadAudioFile } from "./library.ts";
+import { randomTemplate, templateKey } from "./coverTemplates.ts";
 import type { UserFile } from "./types.ts";
 
 export const AUDIO_ACCEPT = ".mp3,.wav,.flac,.ogg,.m4a,.aac,audio/*";
@@ -36,22 +34,8 @@ export function useUploader(files: UserFile[], onFilesChange: (files: UserFile[]
             }
 
             try {
-                let uploaded = await uploadAudioFile(file, tags.title, tags.artist);
-
-                const info: TrackInfo = {};
-                if (!uploaded.cover) {
-                    info.cover = tags.cover ?? randomTemplate();
-                }
-                if (tags.artist && uploaded.artist !== tags.artist) {
-                    info.artist = tags.artist;
-                }
-                if (info.cover !== undefined || info.artist) {
-                    try {
-                        uploaded = (await saveTrackInfo(uploaded, info)).file;
-                    } catch {
-                        newErrors.push(file.name + ": не удалось сохранить данные из файла");
-                    }
-                }
+                const cover = tags.cover ? await resizeImage(tags.cover) : templateKey(randomTemplate());
+                const uploaded = await uploadAudioFile(file, tags.title, tags.artist, cover);
                 current = [uploaded, ...current];
                 onFilesChange(current);
             } catch (err) {

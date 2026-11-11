@@ -10,7 +10,7 @@ import EditorIcon from "../shared/icons/editor.svg?react";
 
 type TrackEditModalProps = {
     file: UserFile
-    onSaved: (file: UserFile, savedLocally: boolean) => void
+    onSaved: (file: UserFile) => void
     onClose: () => void
 }
 
@@ -99,12 +99,12 @@ function TrackEditModal({ file, onSaved, onClose }: TrackEditModalProps) {
         setIsBusy(true);
         setError("");
         try {
-            const result = await saveTrackInfo(file, {
+            const saved = await saveTrackInfo(file, {
                 title: title.trim(),
                 artist: artist.trim() || "Моя музыка",
                 cover: cover,
             });
-            onSaved(result.file, result.savedLocally);
+            onSaved(saved);
             closeModal();
         } catch (err) {
             setError(err instanceof Error ? err.message : "Не удалось сохранить");

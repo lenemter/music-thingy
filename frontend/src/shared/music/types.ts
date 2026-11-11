@@ -1,10 +1,11 @@
-export type ServiceId = "yandex" | "spotify" | "soundcloud" | "youtube" | "local"
+export type ServiceId = "yandex" | "spotify" | "soundcloud" | "youtube" | "vk" | "local"
 
 export type SearchType = "track" | "album" | "artist" | "playlist"
 
 export type PlaybackInfo = {
     kind: string
     ref: string
+    direct_audio_url?: string | null
 }
 
 export type TrackRead = {
@@ -22,6 +23,7 @@ export type TrackRead = {
     liked: boolean
     playback: PlaybackInfo | null
     direct_audio_url: string | null
+    stream_url?: string | null
     external_url: string | null
 }
 
@@ -53,6 +55,20 @@ export type PlaylistSearchResult = {
     tracks_count: number
 }
 
+export type PlaylistRead = {
+    id: number
+    service: ServiceId
+    service_id: string
+    name: string
+    cover: string
+    artwork_url: string | null
+    description: string | null
+    owner_name: string | null
+    tracks_count: number | null
+    external_url: string | null
+    tracks: TrackRead[] | null
+}
+
 export type ServiceError = {
     service: ServiceId
     kind: string
@@ -75,35 +91,22 @@ export type ServiceItem = {
     shortName: string
     service: ServiceId
     online: boolean
-    linked?: boolean
 }
 
-export type LinkStartResponse = {
-    session_id: string
-    kind: "device_code" | "redirect"
-    url: string
-    user_code: string | null
+export type ServiceConnection = {
+    service: ServiceId
+    code: string
+    name: string
+    connected: boolean
+    is_active: boolean
+    account_name: string | null
+    account_id: string | null
+}
+
+export type DeviceCode = {
+    device_code: string
+    user_code: string
+    verification_url: string
     expires_in: number
     interval: number
-}
-
-export type LinkStatusResponse = {
-    status: "pending" | "linked" | "expired" | "denied"
-    detail: string | null
-}
-
-export type UserFileRead = {
-    id: number
-    name: string
-    type: string
-    duration: number
-    size: number
-    size_bytes: number
-    audio_url: string
-    artist?: string | null
-    cover_url?: string | null
-    is_edited: boolean
-    parent_id: number | null
-    edit_summary: string | null
-    created_at: string
 }

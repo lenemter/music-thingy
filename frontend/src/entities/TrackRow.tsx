@@ -4,6 +4,9 @@ import { formatTime } from "../shared/format.ts";
 import type { Service, Track } from "../shared/types.ts";
 import { getServiceName } from "../shared/music/services.ts";
 import { setTrackLiked } from "../shared/favorites.ts";
+import { openAddToPlaylist } from "../shared/playlists.ts";
+import PlusIcon from "../shared/icons/plus.svg?react";
+import CloseIcon from "../shared/icons/close.svg?react";
 import EditorIcon from "../shared/icons/editor.svg?react";
 import HeartIcon from "../shared/icons/heart.svg?react";
 import HeartFilledIcon from "../shared/icons/heart-filled.svg?react";
@@ -15,9 +18,11 @@ type TrackRowProps = {
     isPlaying: boolean
     services: Service[]
     onPlay: (track: Track) => void
+    onRemove?: (track: Track) => void
+    onUnavailableClick?: (track: Track) => void
 }
 
-function TrackRow({ track, number, isPlaying, services, onPlay }: TrackRowProps) {
+function TrackRow({ track, number, isPlaying, services, onPlay, onRemove, onUnavailableClick }: TrackRowProps) {
     const [isLiked, setIsLiked] = useState(track.liked === true);
 
     function getTagTitle(code: string) {
@@ -26,7 +31,11 @@ function TrackRow({ track, number, isPlaying, services, onPlay }: TrackRowProps)
     }
 
     return (
-        <li className={isPlaying ? "track playing" : "track"} onClick={() => onPlay(track)}>
+        <li
+            className={track.unavailable ? "track unavailable" : isPlaying ? "track playing" : "track"}
+            title={track.unavailable ? track.unavailable + " отключён — подключите его в «Источниках», чтобы слушать" : undefined}
+            onClick={() => (track.unavailable ? onUnavailableClick?.(track) : onPlay(track))}
+        >
             {isPlaying ? (
                 <Equalizer/>
             ) : (
@@ -43,6 +52,10 @@ function TrackRow({ track, number, isPlaying, services, onPlay }: TrackRowProps)
                 </span>
             </span>
 
+            {track.unavailable && (
+                <span className="track-unavailable">НЕДОСТУПНО · ПОДКЛЮЧИТЕ СЕРВИС {track.unavailable.toUpperCase()}</span>
+            )}
+
             <span className="tags">
                 {track.sources.map((source) => (
                     <span
@@ -58,6 +71,17 @@ function TrackRow({ track, number, isPlaying, services, onPlay }: TrackRowProps)
             <span className="mono track-time">{formatTime(track.duration)}</span>
 
             <button
+                className="icon-button"
+                title="Добавить в плейлист"
+                onClick={(event) => {
+                    event.stopPropagation();
+                    openAddToPlaylist(track);
+                }}
+            >
+                <PlusIcon width={18} height={18}/>
+            </button>
+
+            <button
                 className={isLiked ? "icon-button liked" : "icon-button"}
                 title={isLiked ? "Убрать из избранного" : "В избранное"}
                 onClick={(event) => {
@@ -69,6 +93,19 @@ function TrackRow({ track, number, isPlaying, services, onPlay }: TrackRowProps)
             >
                 {isLiked ? <HeartFilledIcon/> : <HeartIcon/>}
             </button>
+
+            {onRemove && (
+                <button
+                    className="icon-button file-delete"
+                    title="Убрать из плейлиста"
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onRemove(track);
+                    }}
+                >
+                    <CloseIcon width={16} height={16}/>
+                </button>
+            )}
         </li>
     )
 }

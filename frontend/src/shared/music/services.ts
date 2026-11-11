@@ -2,16 +2,15 @@ import type { Service } from "../types.ts";
 
 export const defaultServices: Service[] = [
     { id: "yandex", code: "ЯМ", name: "Яндекс Музыка", shortName: "Яндекс", online: false, linked: false },
-    { id: "spotify", code: "SP", name: "Spotify", shortName: "Spotify", online: false, linked: false },
-    { id: "soundcloud", code: "SC", name: "SoundCloud", shortName: "SoundCloud", online: false, linked: false },
     { id: "youtube", code: "YT", name: "YouTube", shortName: "YouTube", online: false, linked: false },
+    { id: "vk", code: "VK", name: "VK Музыка", shortName: "VK", online: false, linked: false },
 ];
 
-export const linkHints: Record<string, string> = {
-    yandex: "Откройте страницу Яндекса, войдите в свой аккаунт и введите этот код.",
-    spotify: "Войдите в Spotify в новой вкладке — привязка завершится сама.",
-    soundcloud: "Войдите в SoundCloud в новой вкладке — привязка завершится сама.",
-    youtube: "Войдите в аккаунт Google в новой вкладке — привязка завершится сама.",
+export const deviceLinkServices = ["yandex", "youtube"];
+
+export const deviceLinkHints: Record<string, string> = {
+    yandex: "Откройте страницу Яндекса, войдите в аккаунт и введите этот код. Привязка завершится сама.",
+    youtube: "Откройте страницу Google, войдите в аккаунт и введите этот код. Привязка завершится сама.",
 };
 
 export function getServiceName(idOrCode: string) {

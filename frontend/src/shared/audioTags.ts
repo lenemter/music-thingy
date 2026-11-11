@@ -151,7 +151,7 @@ export async function readAudioTags(data: Blob): Promise<AudioTags> {
 }
 
 export async function readTagsFromUrl(url: string): Promise<AudioTags> {
-    const response = await fetch(url, { headers: { Range: "bytes=0-8388607" } });
+    const response = await fetch(url);
     if (!response.ok) {
         throw new Error("Не удалось прочитать файл");
     }

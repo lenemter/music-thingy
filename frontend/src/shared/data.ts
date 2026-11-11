@@ -1,32 +1,8 @@
-import coverSky from "./images/covers/cover-sky.svg";
 import coverOrange from "./images/covers/cover-orange.svg";
 import coverOrbit from "./images/covers/cover-orbit.svg";
 import coverForest from "./images/covers/cover-forest.svg";
 import coverSun from "./images/covers/cover-sun.svg";
-import type { Track, Album, Playlist, Wave } from "./types.ts";
-
-export const playlists: Playlist[] = [
-    { id: 1, name: "Ночные поездки", cover: coverSky },
-    { id: 2, name: "Фокус · без слов", cover: coverForest },
-    { id: 3, name: "Лето 2026", cover: coverOrange },
-    { id: 4, name: "Мои загрузки", cover: coverOrbit },
-];
-
-export const wave: Wave = {
-    date: "11.10",
-    title: "Эфир на закате",
-    description: "38 треков из Яндекс Музыки, Spotify и SoundCloud, собранных по вашим прослушиваниям за неделю. Один поток — без переключения приложений.",
-    trackCount: 36245,
-    duration: 4389432,
-};
-
-export const albums: Album[] = [
-    { id: 1, title: "Ночные поездки", subtitle: "Плейлист · 64 трека", cover: coverSky },
-    { id: 2, title: "Солнцеворот", subtitle: "Орбита 9 · альбом", cover: coverOrange },
-    { id: 3, title: "Три орбиты", subtitle: "Станция Полночь · EP", cover: coverOrbit },
-    { id: 4, title: "Бег сквозь лес", subtitle: "Хвойный шум · альбом", cover: coverForest },
-    { id: 5, title: "Сигнал 404", subtitle: "Low Tower · альбом", cover: coverSun },
-];
+import type { Track } from "./types.ts";
 
 export const tracks: Track[] = [
     { id: "1", title: "Радиовышка", artist: "Low Tower", cover: coverSun, duration: 238, sources: ["ЯМ", "SP", "SC"], source: "SC", edited: true, liked: true },

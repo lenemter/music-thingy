@@ -1,54 +1,30 @@
-# Привязка аккаунтов сервисов — что ждёт фронтенд
+# Привязка сервисов — как это сделано
 
-Сейчас токены сервисов общие и лежат в настройках сервера. Фронтенд уже умеет привязывать личный аккаунт пользователя,
-бэкенду нужно добавить эндпоинты ниже в роутер `app/api/services.py`. Все запросы — с `Authorization: Bearer <access>`.
+- список: `GET /api/services` + `GET /api/services/connections`
+- включить или выключить в поиске: `PUT /api/services/{service}/toggle`
+- отвязать: `DELETE /api/services/{service}/disconnect`
 
-Если у пользователя привязан свой аккаунт, поиск и плеер должны использовать его токен, иначе — общий серверный.
+## Яндекс Музыка и YouTube — вход по коду
 
-## `GET /api/services`
+`POST /api/services/{yandex|youtube}/oauth/device-code` → показать `user_code` и `verification_url`,
+затем раз в `interval` секунд `POST /api/services/{yandex|youtube}/oauth/poll-token` с `{ "device_code": "..." }`,
+пока не придёт `{ "status": "connected" }`.
 
-К каждому сервису добавить поле `linked`: привязан ли личный аккаунт пользователя.
+- Яндекс: через `yandex_music.Client.request_device_code()` / `poll_device_token()`. Яндекс показывает длинный список доступов —
+  это доступы официального приложения Яндекс Музыки, сузить их нельзя.
+- YouTube: нужны `YOUTUBE_CLIENT_ID` и `YOUTUBE_CLIENT_SECRET` (OAuth-клиент типа «TVs and Limited Input devices») в `backend/.env`.
 
-```json
-{ "code": "ЯМ", "name": "Яндекс Музыка", "shortName": "Яндекс", "service": "yandex", "online": true, "linked": false }
-```
+## VK — логин и пароль
 
-## `POST /api/services/{service}/link`
+`POST /api/services/vk/login` с `{ "login": "...", "password": "...", "code": "..." }`. Запрос делается по шагам и ничего не хранит
+между ними: фронтенд держит логин и пароль в памяти, пока идёт вход.
 
-Начинает вход. Два вида:
+- `{ "status": "need_code", "validation_type": "sms", "phone_mask": "+7 *** ***-**-12" }` — повторить запрос с `code`
+- `{ "status": "need_code", "invalid_code": true }` — код неверный
+- `{ "status": "need_captcha" }` — VK требует капчу VK ID; пройти её с нашей страницы нельзя
+- `{ "status": "connected" }` — токен и user_agent сохранены в `UserServiceAccount`
 
-- `device_code` — для Яндекса: бэкенд запрашивает код у `oauth.yandex.ru` (Device Flow, от имени приложения Яндекс Музыки, как делает библиотека `yandex-music`), пользователь открывает `url` и вводит `user_code`, бэкенд сам опрашивает Яндекс и сохраняет токен.
-- `redirect` — для Spotify, SoundCloud, Google: обычный OAuth, `redirect_uri` ведёт на бэкенд, бэкенд меняет `code` на токен.
+Вход неофициальный: `vkpymusic` входит от имени приложения VK для Android. VK может закрыть этот способ.
+Пароль не сохраняется и не пишется в логи.
 
-```json
-{
-  "session_id": "b6f1c2...",
-  "kind": "device_code",
-  "url": "https://ya.ru/device",
-  "user_code": "ABCD-1234",
-  "expires_in": 300,
-  "interval": 5
-}
-```
-
-Для `redirect` поле `user_code` — `null`. `interval` — как часто (в секундах) фронтенд спрашивает статус.
-
-## `GET /api/services/{service}/link/{session_id}`
-
-```json
-{ "status": "pending", "detail": null }
-```
-
-`pending` — ждём пользователя, `linked` — токен сохранён, `expired` — время вышло, `denied` — отказ или ошибка (текст в `detail`).
-
-## `DELETE /api/services/{service}/link`
-
-Удаляет личный токен пользователя. Ответ `204`.
-
-## Где это на фронтенде
-
-- `src/shared/api.ts` — `startServiceLink`, `getServiceLinkStatus`, `unlinkService`
-- `src/widgets/SourcesModal.tsx` — кнопки «Привязать» / «Отвязать»
-- `src/widgets/ServiceLink.tsx` — показ кода или кнопки входа и опрос статуса
-
-Пока эндпоинтов нет, кнопка «Привязать» показывает «Сервер пока не поддерживает привязку аккаунтов».
+Лайки и история прослушиваний в бэкенде пока не хранятся — лайки сохраняются в браузере (`localStorage`, `signal-likes`).

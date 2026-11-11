@@ -1,17 +1,26 @@
 import { useRef, useState } from "react";
+import { confirmAction } from "../shared/confirm.ts";
 import type { DragEvent } from "react";
 import Header from "../widgets/Header.tsx";
 import TrackEditModal from "../widgets/TrackEditModal.tsx";
 import Equalizer from "../entities/Equalizer.tsx";
-import { deleteUpload } from "../shared/api.ts";
 import { formatTime } from "../shared/format.ts";
-import { removeOverride } from "../shared/library.ts";
+import { deleteUpload } from "../shared/library.ts";
 import { AUDIO_ACCEPT, useUploader } from "../shared/useUploader.ts";
 import type { Service, User, UserFile } from "../shared/types.ts";
 import UploadIcon from "../shared/icons/upload.svg?react";
 import PencilIcon from "../shared/icons/pencil.svg?react";
 import CloseIcon from "../shared/icons/close.svg?react";
 import { fallbackCover } from "../shared/coverTemplates.ts";
+import PlaylistCover, { NoteIcon } from "../entities/PlaylistCover.tsx";
+import PlaylistView from "../widgets/PlaylistView.tsx";
+import LikeButton from "../entities/LikeButton.tsx";
+import { plural, trackCount } from "../shared/format.ts";
+import { openAddToPlaylist } from "../shared/playlists.ts";
+import { trackFromFile } from "../shared/music/convert.ts";
+import type { LibraryPlaylist } from "../shared/usePlaylists.ts";
+import type { Track } from "../shared/types.ts";
+import PlusIcon from "../shared/icons/plus.svg?react";
 
 type LibraryPageProps = {
     user: User
@@ -24,30 +33,28 @@ type LibraryPageProps = {
     onLogout: () => void
     onSearch: (query: string) => void
     onServicesChange: (services: Service[]) => void
-}
-
-function trackWord(count: number) {
-    const lastTwo = count % 100;
-    const last = count % 10;
-    if (lastTwo >= 11 && lastTwo <= 14) {
-        return "треков";
-    }
-    if (last === 1) {
-        return "трек";
-    }
-    if (last >= 2 && last <= 4) {
-        return "трека";
-    }
-    return "треков";
+    playlists: LibraryPlaylist[]
+    isLoadingPlaylists: boolean
+    openPlaylistId: string | null
+    currentTrackId: string | null
+    onOpenPlaylist: (id: string | null) => void
+    onCreatePlaylist: () => void
+    onRenamePlaylist: (playlist: LibraryPlaylist) => void
+    onDeletePlaylist: (playlist: LibraryPlaylist) => void
+    onPlayTrack: (track: Track, queue: Track[]) => void
+    onOpenSources: () => void
 }
 
 function LibraryPage(props: LibraryPageProps) {
     const { user, services, files, playingFileId, onFilesChange, onPlay, onDeleted } = props;
     const { onLogout, onSearch, onServicesChange } = props;
+    const { playlists, isLoadingPlaylists, openPlaylistId, currentTrackId } = props;
+    const { onOpenPlaylist, onCreatePlaylist, onRenamePlaylist, onDeletePlaylist, onPlayTrack, onOpenSources } = props;
+    const openPlaylist = playlists.find((playlist) => playlist.id === openPlaylistId) ?? null;
+    const hasServicePlaylists = playlists.some((playlist) => playlist.kind === "service");
     const uploader = useUploader(files, onFilesChange);
     const [editingFile, setEditingFile] = useState<UserFile | null>(null);
     const [isDragOver, setIsDragOver] = useState(false);
-    const [notice, setNotice] = useState("");
     const [deleteError, setDeleteError] = useState("");
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -58,13 +65,19 @@ function LibraryPage(props: LibraryPageProps) {
     }
 
     async function handleDelete(file: UserFile) {
-        if (!window.confirm("Удалить «" + file.name + "»? Файл удалится без возможности восстановления.")) {
+        const isConfirmed = await confirmAction({
+            title: "Удалить «" + file.name + "»?",
+            text: "Файл и его правки удалятся из этого браузера навсегда. Восстановить не получится.",
+            confirmText: "Удалить",
+            danger: true,
+            icon: "delete",
+        });
+        if (!isConfirmed) {
             return;
         }
         setDeleteError("");
         try {
             await deleteUpload(file.id);
-            removeOverride(file.id);
             onDeleted(file);
             onFilesChange(files.filter((item) => item.id !== file.id));
         } catch (err) {
@@ -72,9 +85,8 @@ function LibraryPage(props: LibraryPageProps) {
         }
     }
 
-    function handleSaved(updated: UserFile, savedLocally: boolean) {
+    function handleSaved(updated: UserFile) {
         onFilesChange(files.map((item) => (item.id === updated.id ? updated : item)));
-        setNotice(savedLocally ? "Изменения сохранены в этом браузере — сервер пока не умеет их хранить" : "");
     }
 
     return (
@@ -93,11 +105,24 @@ function LibraryPage(props: LibraryPageProps) {
         >
             <Header user={user} services={services} onLogout={onLogout} onSearch={onSearch} onServicesChange={onServicesChange}/>
 
+            {openPlaylist ? (
+                <PlaylistView
+                    key={openPlaylist.id}
+                    playlist={openPlaylist}
+                    services={services}
+                    currentTrackId={currentTrackId}
+                    onPlay={onPlayTrack}
+                    onBack={() => onOpenPlaylist(null)}
+                    onRename={() => onRenamePlaylist(openPlaylist)}
+                    onDelete={() => onDeletePlaylist(openPlaylist)}
+                    onOpenSources={onOpenSources}
+                />
+            ) : (
             <section className={isDragOver ? "section library drag-over" : "section library"}>
                 <div className="library-header">
                     <div>
                         <h1 className="library-title">Медиатека</h1>
-                        <span className="mono">{files.length} {trackWord(files.length)}</span>
+                        <span className="mono">{playlists.length} {plural(playlists.length, "плейлист", "плейлиста", "плейлистов")} · {trackCount(files.length)} в загрузках</span>
                     </div>
                     <input
                         ref={inputRef}
@@ -110,14 +135,58 @@ function LibraryPage(props: LibraryPageProps) {
                             event.target.value = "";
                         }}
                     />
-                    <button className="button accent" disabled={uploader.isUploading} onClick={() => inputRef.current?.click()}>
-                        <UploadIcon width={18} height={18}/>
-                        {uploader.isUploading ? "Загружаем…" : "Загрузить музыку"}
+                    <div className="library-buttons">
+                        <button className="button outline-light" onClick={onCreatePlaylist}>
+                            <PlusIcon width={18} height={18}/>
+                            Новый плейлист
+                        </button>
+                        <button className="button accent" disabled={uploader.isUploading} onClick={() => inputRef.current?.click()}>
+                            <UploadIcon width={18} height={18}/>
+                            {uploader.isUploading ? "Загружаем…" : "Загрузить музыку"}
+                        </button>
+                    </div>
+                </div>
+
+                <div className="section-header library-subheader">
+                    <h2>Плейлисты</h2>
+                    {isLoadingPlaylists && <span className="mono">обновляем из сервисов…</span>}
+                </div>
+                <div className="playlist-grid">
+                    {playlists.map((playlist) => (
+                        <button
+                            key={playlist.id}
+                            className={playlist.unavailable ? "playlist-card unavailable" : "playlist-card"}
+                            onClick={() => onOpenPlaylist(playlist.id)}
+                        >
+                            <PlaylistCover key={playlist.id + (playlist.cover ?? "")} playlist={playlist} size="card"/>
+                            <span className="playlist-card-title">{playlist.unavailable ? "[" + playlist.name.toUpperCase() + "]" : playlist.name}</span>
+                            <span className="playlist-card-subtitle">{playlist.subtitle}</span>
+                        </button>
+                    ))}
+                    {isLoadingPlaylists && !hasServicePlaylists && [0, 1].map((index) => (
+                        <div key={"loading-" + index} className="playlist-card">
+                            <span className="playlist-cover card loading">
+                                <span className="playlist-loading"><NoteIcon/></span>
+                            </span>
+                            <span className="playlist-card-title muted">Плейлисты грузятся</span>
+                            <span className="playlist-card-subtitle">Ждём ответа сервисов</span>
+                        </div>
+                    ))}
+                    <button className="playlist-card" onClick={onCreatePlaylist}>
+                        <span className="playlist-cover card playlist-new">
+                            <PlusIcon width={44} height={44}/>
+                        </span>
+                        <span className="playlist-card-title">Новый плейлист</span>
+                        <span className="playlist-card-subtitle">Соберите треки из любых сервисов</span>
                     </button>
                 </div>
 
+                <div className="section-header library-subheader">
+                    <h2>Загрузки</h2>
+                    <span className="mono">{trackCount(files.length)}</span>
+                </div>
+
                 {uploader.status && <p className="search-note">{uploader.status}</p>}
-                {notice && <p className="search-note">{notice}</p>}
                 {[...uploader.errors, deleteError].filter(Boolean).map((error) => (
                     <p key={error} className="auth-error">{error}</p>
                 ))}
@@ -153,6 +222,17 @@ function LibraryPage(props: LibraryPageProps) {
                                 <span className="mono library-size">{file.size} МБ</span>
                                 <button
                                     className="icon-button"
+                                    title="Добавить в плейлист"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        openAddToPlaylist(trackFromFile(file));
+                                    }}
+                                >
+                                    <PlusIcon width={18} height={18}/>
+                                </button>
+                                <LikeButton track={trackFromFile(file)}/>
+                                <button
+                                    className="icon-button"
                                     title="Изменить название, исполнителя и обложку"
                                     onClick={(event) => {
                                         event.stopPropagation();
@@ -176,6 +256,7 @@ function LibraryPage(props: LibraryPageProps) {
                     </ol>
                 )}
             </section>
+            )}
 
             {editingFile && (
                 <TrackEditModal

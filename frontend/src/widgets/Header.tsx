@@ -2,10 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { Service, User } from "../shared/types.ts";
 import type { ServiceId } from "../shared/music/types.ts";
-import { updateServicePreferences } from "../shared/api.ts";
+import { setServiceActive } from "../shared/api.ts";
 import SearchIcon from "../shared/icons/search.svg?react";
 import CloseIcon from "../shared/icons/close.svg?react";
-import BellIcon from "../shared/icons/bell.svg?react";
 import LogoutIcon from "../shared/icons/logout.svg?react";
 
 type HeaderProps = {
@@ -13,13 +12,14 @@ type HeaderProps = {
     services: Service[]
     onLogout: () => void
     onSearch: (query: string) => void
+    searchQuery?: string
     onServicesChange: (services: Service[]) => void
 }
 
-function Header({ user, services, onLogout, onSearch, onServicesChange }: HeaderProps) {
+function Header({ user, services, onLogout, onSearch, onServicesChange, searchQuery = "" }: HeaderProps) {
     const [togglingService, setTogglingService] = useState<ServiceId | null>(null);
     const [unavailable, setUnavailable] = useState<ServiceId[]>([]);
-    const [query, setQuery] = useState("");
+    const [query, setQuery] = useState(searchQuery);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isClosing, setIsClosing] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -29,14 +29,9 @@ function Header({ user, services, onLogout, onSearch, onServicesChange }: Header
     const linkedServices = services.filter((service) => service.linked);
 
     async function toggleService(service: Service) {
-        const enabled = services.filter((item) => item.online).map((item) => item.id);
-        const newEnabled = service.online
-            ? enabled.filter((id) => id !== service.id)
-            : [...enabled, service.id];
-
         setTogglingService(service.id);
         try {
-            const updated = await updateServicePreferences(newEnabled);
+            const updated = await setServiceActive(service.id, !service.online);
             onServicesChange(updated);
 
             const result = updated.find((item) => item.id === service.id);
@@ -153,7 +148,6 @@ function Header({ user, services, onLogout, onSearch, onServicesChange }: Header
                     ))}
                 </span>
             </form>
-            <button className="icon-button big" title="Уведомления"><BellIcon/></button>
 
             <div className="profile-menu" ref={menuRef}>
                 <button className="profile" title="Профиль" onClick={toggleMenu}>

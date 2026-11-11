@@ -1,27 +1,35 @@
-import Cover from "../entities/Cover.tsx";
-import type { Album } from "../shared/types.ts";
+import PlaylistCover from "../entities/PlaylistCover.tsx";
+import type { LibraryPlaylist } from "../shared/usePlaylists.ts";
 
 type ContinueListeningProps = {
-    albums: Album[]
+    playlists: LibraryPlaylist[]
+    onOpenPlaylist: (id: string) => void
+    onOpenLibrary: () => void
 }
 
-function ContinueListening({ albums }: ContinueListeningProps) {
+function ContinueListening({ playlists, onOpenPlaylist, onOpenLibrary }: ContinueListeningProps) {
+    if (playlists.length === 0) {
+        return null;
+    }
+
     return (
         <section className="section">
             <div className="section-header">
                 <h2>Продолжить слушать</h2>
-                <a className="section-link" href="#">ВСЯ ИСТОРИЯ →</a>
+                <button className="link-plain section-link" onClick={onOpenLibrary}>ВСЯ МЕДИАТЕКА →</button>
             </div>
 
             <div className="cards">
-                {albums.map((album) => (
-                    <a key={album.id} className="card" href="#">
-                        <Cover src={album.cover} size="card"/>
-                        <div>
-                            <div className="card-title">{album.title}</div>
-                            <div className="card-subtitle">{album.subtitle}</div>
-                        </div>
-                    </a>
+                {playlists.map((playlist) => (
+                    <button
+                        key={playlist.id}
+                        className={playlist.unavailable ? "playlist-card unavailable" : "playlist-card"}
+                        onClick={() => onOpenPlaylist(playlist.id)}
+                    >
+                        <PlaylistCover key={playlist.id + (playlist.cover ?? "")} playlist={playlist} size="card"/>
+                        <span className="playlist-card-title">{playlist.name}</span>
+                        <span className="playlist-card-subtitle">{playlist.subtitle}</span>
+                    </button>
                 ))}
             </div>
         </section>

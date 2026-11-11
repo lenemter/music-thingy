@@ -1,5 +1,5 @@
-import type { Album, Playlist, Service, Track, User, UserFile, Wave } from "./types.ts";
-import type { LinkStartResponse, LinkStatusResponse, MusicSearchResponse, PlaybackInfo, ServiceItem, TrackRead, UserFileRead } from "./music/types.ts";
+import type { Service, User } from "./types.ts";
+import type { MusicSearchResponse, PlaybackInfo, PlaylistRead, ServiceConnection, ServiceItem, TrackRead, DeviceCode } from "./music/types.ts";
 
 const TOKENS_KEY = "signal-tokens";
 const USER_KEY = "signal-user";
@@ -19,6 +19,7 @@ const translations = [
     { text: "Not authenticated", message: "Нужно войти в аккаунт" },
     { text: "Unsupported audio format", message: "Такой формат не поддерживается — нужен MP3, WAV, FLAC, OGG, M4A или AAC" },
     { text: "exceeds maximum size", message: "Файл больше 50 МБ" },
+    { text: "CLIENT_ID and CLIENT_SECRET", message: "Вход через YouTube ещё не настроен на сервере" },
 ];
 
 function translate(message: string) {
@@ -216,41 +217,56 @@ export function logout() {
 
 // ================= SERVICES =================
 
-function serviceFromItem(item: ServiceItem): Service {
-    return {
-        id: item.service,
-        code: item.code,
-        name: item.name,
-        shortName: item.shortName,
-        online: item.online,
-        linked: item.linked ?? false,
-    };
-}
-
 export async function fetchServices(): Promise<Service[]> {
-    const items: ServiceItem[] = await requestJson("/api/services");
-    return items.map(serviceFromItem);
+    const [items, connections]: [ServiceItem[], ServiceConnection[]] = await Promise.all([
+        requestJson("/api/services"),
+        requestJson("/api/services/connections"),
+    ]);
+
+    return connections.map((connection) => {
+        const item = items.find((entry) => entry.service === connection.service);
+        return {
+            id: connection.service,
+            code: connection.code,
+            name: connection.name,
+            shortName: item?.shortName ?? connection.name,
+            online: connection.connected && connection.is_active,
+            linked: connection.connected,
+            accountName: connection.account_name ?? undefined,
+        };
+    });
 }
 
-export async function updateServicePreferences(enabledServices: string[]): Promise<Service[]> {
-    const items: ServiceItem[] = await requestJson("/api/services/preferences", {
+export async function setServiceActive(service: string, isActive: boolean): Promise<Service[]> {
+    await requestJson(`/api/services/${service}/toggle`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled_services: enabledServices }),
+        body: JSON.stringify({ is_active: isActive }),
     });
-    return items.map(serviceFromItem);
+    return fetchServices();
 }
 
-export async function startServiceLink(service: string): Promise<LinkStartResponse> {
-    return requestJson(`/api/services/${service}/link`, { method: "POST" });
+export type VkLoginResult = {
+    status: "connected" | "need_code" | "need_captcha"
+    validation_type?: string
+    phone_mask?: string
+    invalid_code?: boolean
 }
 
-export async function getServiceLinkStatus(service: string, sessionId: string): Promise<LinkStatusResponse> {
-    return requestJson(`/api/services/${service}/link/${sessionId}`);
+export async function loginVk(login: string, password: string, code?: string): Promise<VkLoginResult> {
+    return postJson("/api/services/vk/login", { login, password, code });
 }
 
-export async function unlinkService(service: string): Promise<void> {
-    await requestJson(`/api/services/${service}/link`, { method: "DELETE" });
+export async function disconnectService(service: string): Promise<void> {
+    await requestJson(`/api/services/${service}/disconnect`, { method: "DELETE" });
+}
+
+export async function startDeviceLink(service: string): Promise<DeviceCode> {
+    return requestJson(`/api/services/${service}/oauth/device-code`, { method: "POST" });
+}
+
+export async function pollDeviceLink(service: string, deviceCode: string): Promise<{ status: string }> {
+    return postJson(`/api/services/${service}/oauth/poll-token`, { device_code: deviceCode });
 }
 
 // ================= MUSIC & SEARCH =================
@@ -280,228 +296,14 @@ export async function fetchPlayback(service: string, serviceId: string): Promise
     return requestJson(`/api/music/playback/${service}/${encodeURIComponent(serviceId)}`);
 }
 
-// ================= PLAYLISTS =================
-
-export async function fetchPlaylists(): Promise<Playlist[]> {
-    return requestJson("/api/playlists");
+export async function fetchMyPlaylists(): Promise<PlaylistRead[]> {
+    return requestJson("/api/music/me/playlists");
 }
 
-export async function createPlaylist(name: string, description?: string, coverUrl?: string): Promise<Playlist> {
-    return requestJson("/api/playlists", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description, cover_url: coverUrl }),
-    });
+export async function fetchServicePlaylist(service: string, serviceId: string): Promise<PlaylistRead> {
+    return requestJson(`/api/music/playlists/${service}/${encodeURIComponent(serviceId)}`);
 }
 
-export async function fetchPlaylistDetails(playlistId: number): Promise<Playlist & { tracks: any[] }> {
-    return requestJson(`/api/playlists/${playlistId}`);
-}
-
-export async function addTrackToPlaylist(playlistId: number, track: Partial<Track> & { service: string; service_id: string }): Promise<any> {
-    return requestJson(`/api/playlists/${playlistId}/tracks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            service: track.service,
-            service_id: track.service_id,
-            title: track.title,
-            artist: track.artist,
-            cover_url: track.cover,
-            duration: track.duration,
-        }),
-    });
-}
-
-export async function removeTrackFromPlaylist(playlistId: number, trackId: number): Promise<void> {
-    await requestJson(`/api/playlists/${playlistId}/tracks/${trackId}`, { method: "DELETE" });
-}
-
-export async function reorderPlaylist(playlistId: number, trackIds: number[]): Promise<any> {
-    return requestJson(`/api/playlists/${playlistId}/reorder`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ track_ids: trackIds }),
-    });
-}
-
-export async function deletePlaylist(playlistId: number): Promise<void> {
-    await requestJson(`/api/playlists/${playlistId}`, { method: "DELETE" });
-}
-
-// ================= FAVORITES =================
-
-export async function fetchFavoriteTracks(): Promise<Track[]> {
-    return requestJson("/api/favorites/tracks");
-}
-
-export async function addFavoriteTrack(track: Track & { service?: string; service_id?: string }): Promise<Track> {
-    return requestJson("/api/favorites/tracks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            service: track.service || track.source,
-            service_id: track.service_id || String(track.id),
-            title: track.title,
-            artist: track.artist,
-            cover_url: track.cover,
-            duration: track.duration,
-            sources: track.sources,
-            is_edited: track.edited || false,
-        }),
-    });
-}
-
-export async function removeFavoriteTrack(service: string, serviceId: string): Promise<void> {
-    await requestJson(`/api/favorites/tracks/${service}/${serviceId}`, { method: "DELETE" });
-}
-
-export async function fetchFavoriteAlbums(): Promise<Album[]> {
-    return requestJson("/api/favorites/albums");
-}
-
-// ================= HISTORY & RECOMMENDATIONS =================
-
-export async function recordListeningHistory(track: Track & { service?: string; service_id?: string }): Promise<void> {
-    await requestJson("/api/history", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            service: track.service || track.source,
-            service_id: track.service_id || String(track.id),
-            title: track.title,
-            artist: track.artist,
-            cover_url: track.cover,
-            duration: track.duration,
-        }),
-    });
-}
-
-export async function fetchContinueListening(limit = 6): Promise<Album[]> {
-    return requestJson(`/api/history/albums?limit=${limit}`);
-}
-
-export async function fetchRecommendations(limit = 10): Promise<Track[]> {
-    return requestJson(`/api/recommendations?limit=${limit}`);
-}
-
-export async function fetchWave(): Promise<Wave> {
-    return requestJson("/api/wave");
-}
-
-// ================= OWN MUSIC & UPLOADS =================
-
-function fileFromRead(item: UserFileRead): UserFile {
-    return {
-        id: item.id,
-        name: item.name,
-        type: item.type,
-        duration: item.duration,
-        size: item.size,
-        audioUrl: item.audio_url,
-        isEdited: item.is_edited,
-        artist: item.artist || "Моя музыка",
-        cover: item.cover_url || undefined,
-    };
-}
-
-export async function updateUpload(uploadId: number, data: { title: string, artist: string }): Promise<UserFile> {
-    const item: UserFileRead = await requestJson(`/api/uploads/${uploadId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-    });
-    return fileFromRead(item);
-}
-
-export async function uploadCover(uploadId: number, image: Blob): Promise<UserFile> {
-    const formData = new FormData();
-    formData.append("file", image, "cover.jpg");
-    const item: UserFileRead = await requestJson(`/api/uploads/${uploadId}/cover`, {
-        method: "PUT",
-        body: formData,
-    });
-    return fileFromRead(item);
-}
-
-export async function removeCover(uploadId: number): Promise<void> {
-    await requestJson(`/api/uploads/${uploadId}/cover`, { method: "DELETE" });
-}
-
-export async function fetchUploads(): Promise<UserFile[]> {
-    const items: UserFileRead[] = await requestJson("/api/uploads");
-    return items.map(fileFromRead);
-}
-
-export async function uploadAudioFile(file: File, title?: string, artist?: string): Promise<UserFile> {
-    const formData = new FormData();
-    formData.append("file", file);
-    if (title) formData.append("title", title);
-    if (artist) formData.append("artist", artist);
-
-    const item: UserFileRead = await requestJson("/api/uploads", {
-        method: "POST",
-        body: formData,
-    });
-    return fileFromRead(item);
-}
-
-export async function deleteUpload(uploadId: number): Promise<void> {
-    await requestJson(`/api/uploads/${uploadId}`, { method: "DELETE" });
-}
-
-export function getUploadStreamUrl(uploadId: number): string {
-    return `/api/uploads/${uploadId}/stream`;
-}
-
-// ================= AUDIO EDITOR =================
-
-export type AudioEffectsOptions = {
-    fade_in_sec?: number
-    fade_out_sec?: number
-    volume_gain_db?: number
-    bass_boost_db?: number
-    speed_factor?: number
-    normalize?: boolean
-    reverse?: boolean
-    echo_delay_sec?: number
-    echo_decay?: number
-    save_as_new?: boolean
-    new_name?: string
-}
-
-export async function trimAudio(uploadId: number, startSec: number, endSec?: number, newName?: string): Promise<UserFile> {
-    return requestJson("/api/editor/trim", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            upload_id: uploadId,
-            start_sec: startSec,
-            end_sec: endSec,
-            save_as_new: true,
-            new_name: newName,
-        }),
-    });
-}
-
-export async function applyAudioEffects(uploadId: number, options: AudioEffectsOptions): Promise<UserFile> {
-    return requestJson("/api/editor/effects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            upload_id: uploadId,
-            ...options,
-        }),
-    });
-}
-
-export async function processAudioPipeline(uploadId: number, config: AudioEffectsOptions & { start_sec?: number; end_sec?: number; output_format?: string }): Promise<UserFile> {
-    return requestJson("/api/editor/process", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            upload_id: uploadId,
-            ...config,
-        }),
-    });
+export async function fetchFavorites(): Promise<TrackRead[]> {
+    return requestJson("/api/music/me/favorites?limit=100");
 }

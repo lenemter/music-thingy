@@ -1,26 +1,28 @@
 import { useEffect, useState } from "react";
 import TrackRow from "../entities/TrackRow.tsx";
 import { searchMusic } from "../shared/api.ts";
-import { trackFromRead } from "../shared/music/convert.ts";
+import { trackFromFile, trackFromRead } from "../shared/music/convert.ts";
 import { getServiceName } from "../shared/music/services.ts";
 import type { ServiceError } from "../shared/music/types.ts";
-import type { Service, Track } from "../shared/types.ts";
+import type { Service, Track, UserFile } from "../shared/types.ts";
 
 type SearchResultsProps = {
     query: string
     currentTrack: Track
     services: Service[]
+    files: UserFile[]
     onPlay: (track: Track, queue: Track[]) => void
     onClose: () => void
     onOpenSources: () => void
 }
 
-function SearchResults({ query, currentTrack, services, onPlay, onClose, onOpenSources }: SearchResultsProps) {
+function SearchResults({ query, currentTrack, services, files, onPlay, onClose, onOpenSources }: SearchResultsProps) {
     const [tracks, setTracks] = useState<Track[]>([]);
     const [serviceErrors, setServiceErrors] = useState<ServiceError[]>([]);
     const [error, setError] = useState("");
     const [isLoading, setIsLoading] = useState(true);
 
+    const hasLinked = services.some((service) => service.linked);
     const hasConnected = services.some((service) => service.online);
 
     useEffect(() => {
@@ -31,7 +33,11 @@ function SearchResults({ query, currentTrack, services, onPlay, onClose, onOpenS
                 if (!isActual) {
                     return;
                 }
-                setTracks(result.tracks.map(trackFromRead));
+                const text = query.toLowerCase();
+                const ownTracks = files
+                    .filter((file) => file.name.toLowerCase().includes(text) || file.artist.toLowerCase().includes(text))
+                    .map(trackFromFile);
+                setTracks([...ownTracks, ...result.tracks.map(trackFromRead)]);
                 setServiceErrors(result.errors);
             })
             .catch((err) => {
@@ -51,7 +57,7 @@ function SearchResults({ query, currentTrack, services, onPlay, onClose, onOpenS
         return () => {
             isActual = false;
         };
-    }, [query]);
+    }, [query, files]);
 
     return (
         <section className="section search-results">
@@ -60,10 +66,17 @@ function SearchResults({ query, currentTrack, services, onPlay, onClose, onOpenS
                 <button className="section-link search-close" onClick={onClose}>← НАЗАД</button>
             </div>
 
-            {!hasConnected && (
+            {!hasLinked && (
                 <p className="search-note">
-                    Все сервисы выключены.{" "}
-                    <button className="link-button" onClick={onOpenSources}>Включить источники</button>
+                    Аккаунты не привязаны — ищем в общем каталоге.{" "}
+                    <button className="link-button" onClick={onOpenSources}>Привязать аккаунты</button>
+                </p>
+            )}
+
+            {hasLinked && !hasConnected && (
+                <p className="search-note">
+                    Все ваши сервисы выключены — ищем в общем каталоге.{" "}
+                    <button className="link-button" onClick={onOpenSources}>Открыть источники</button>
                 </p>
             )}
 
