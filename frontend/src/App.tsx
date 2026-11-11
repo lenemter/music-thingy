@@ -96,8 +96,18 @@ function App() {
 
     const [nameModal, setNameModal] = useState<NameModal | null>(null);
     const [trackToAdd, setTrackToAdd] = useState<Track | null>(null);
-    const [isQueueOpen, setIsQueueOpen] = useState(false);
-    const closeQueue = useCallback(() => setIsQueueOpen(false), []);
+    // Очередь закрывается с анимацией: сначала «closing», через 200 мс панель убирается
+    const [queueState, setQueueState] = useState<"closed" | "open" | "closing">("closed");
+    const isQueueOpen = queueState === "open";
+    const closeQueue = useCallback(() => setQueueState((state) => (state === "open" ? "closing" : state)), []);
+
+    useEffect(() => {
+        if (queueState !== "closing") {
+            return;
+        }
+        const timer = setTimeout(() => setQueueState("closed"), 200);
+        return () => clearTimeout(timer);
+    }, [queueState]);
 
     useEffect(() => subscribeAddToPlaylist(setTrackToAdd), []);
 
@@ -306,9 +316,9 @@ function App() {
               player={player}
               services={services}
               isQueueOpen={isQueueOpen}
-              onToggleQueue={() => setIsQueueOpen((value) => !value)}
+              onToggleQueue={() => setQueueState((state) => (state === "open" ? "closing" : "open"))}
           />
-          {isQueueOpen && <QueuePanel player={player} onClose={closeQueue}/>}
+          {queueState !== "closed" && <QueuePanel player={player} isClosing={queueState === "closing"} onClose={closeQueue}/>}
 
           {isSourcesOpen && (
               <SourcesModal
