@@ -413,3 +413,40 @@ def test_youtube_device_code_endpoint(client: TestClient):
     data = resp.json()
     assert data["user_code"] == "ABCD-EFGH"
     assert data["verification_url"] == "https://www.google.com/device"
+
+
+def test_yandex_stream_signed_url_flow(client: TestClient):
+    # 1. Register and login
+    email = "yandex_stream_user@example.com"
+    password = "SecurePassword123!"
+    client.post("/api/auth/register", json={"email": email, "password": password, "display_name": "Streamer"})
+    token_resp = client.post("/api/auth/token", json={"email": email, "password": password})
+    token = token_resp.json()["access"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 2. Get track metadata as authenticated user
+    mock_track = TrackDTO(
+        service=Service.YANDEX,
+        service_id="999:888",
+        title="Yandex Stream Song",
+        artists=("Stream Artist",),
+        direct_audio_url="https://storage.yandex.net/music/stream_song.mp3",
+    )
+    with patch("app.api.music.aggregator.get_track", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_track
+        resp = client.get("/api/music/tracks/yandex/999:888", headers=headers)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    stream_url = data["direct_audio_url"]
+    assert "/api/music/tracks/yandex/999:888/stream?u=" in stream_url
+    assert "&sig=" in stream_url
+
+    # 3. Stream request with signed query params without Authorization header
+    with patch("app.api.music.aggregator.get_track", new_callable=AsyncMock) as mock_stream_get:
+        mock_stream_get.return_value = mock_track
+        stream_resp = client.get(f"{stream_url}&redirect=true", follow_redirects=False)
+
+    assert stream_resp.status_code == 307
+    assert stream_resp.headers["location"] == "https://storage.yandex.net/music/stream_song.mp3"
+
