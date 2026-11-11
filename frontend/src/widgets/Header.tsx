@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import type { FormEvent } from "react";
 import type { Service, User } from "../shared/types.ts";
+import type { ServiceId } from "../shared/music/types.ts";
+import { updateServicePreferences } from "../shared/api.ts";
 import SearchIcon from "../shared/icons/search.svg?react";
+import CloseIcon from "../shared/icons/close.svg?react";
 import BellIcon from "../shared/icons/bell.svg?react";
 import LogoutIcon from "../shared/icons/logout.svg?react";
 
@@ -8,16 +12,63 @@ type HeaderProps = {
     user: User
     services: Service[]
     onLogout: () => void
+    onSearch: (query: string) => void
+    onServicesChange: (services: Service[]) => void
 }
 
-function Header({ user, services, onLogout }: HeaderProps) {
+function Header({ user, services, onLogout, onSearch, onServicesChange }: HeaderProps) {
+    const [togglingService, setTogglingService] = useState<ServiceId | null>(null);
+    const [unavailable, setUnavailable] = useState<ServiceId[]>([]);
+    const [query, setQuery] = useState("");
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isClosing, setIsClosing] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const closeTimer = useRef<number | undefined>(undefined);
 
-    const onlineServices = services.filter((service) => service.online);
     const letter = user.name[0].toUpperCase();
+    const linkedServices = services.filter((service) => service.linked);
+
+    async function toggleService(service: Service) {
+        const enabled = services.filter((item) => item.online).map((item) => item.id);
+        const newEnabled = service.online
+            ? enabled.filter((id) => id !== service.id)
+            : [...enabled, service.id];
+
+        setTogglingService(service.id);
+        try {
+            const updated = await updateServicePreferences(newEnabled);
+            onServicesChange(updated);
+
+            const result = updated.find((item) => item.id === service.id);
+            if (!service.online && result && !result.online) {
+                setUnavailable([...unavailable, service.id]);
+            } else {
+                setUnavailable(unavailable.filter((id) => id !== service.id));
+            }
+        } catch {
+            setUnavailable(unavailable);
+        }
+        setTogglingService(null);
+    }
+
+    function getTagTitle(service: Service) {
+        if (unavailable.includes(service.id)) {
+            return service.name + " не настроен на сервере — привяжите аккаунт в «Источниках»";
+        }
+        return (service.online ? "Выключить " : "Включить ") + service.name;
+    }
+
+    function clearSearch() {
+        setQuery("");
+        onSearch("");
+    }
+
+    function handleSearch(event: FormEvent) {
+        event.preventDefault();
+        if (query.trim() !== "") {
+            onSearch(query.trim());
+        }
+    }
 
     function openMenu() {
         clearTimeout(closeTimer.current);
@@ -70,12 +121,35 @@ function Header({ user, services, onLogout }: HeaderProps) {
 
     return (
         <header className="header">
-            <form className="search" role="search">
+            <form className="search" role="search" onSubmit={handleSearch}>
                 <SearchIcon/>
-                <input type="search" placeholder="Трек, альбом или исполнитель — ищем во всех сервисах"/>
+                <input
+                    type="search"
+                    placeholder="Трек, альбом или исполнитель — ищем во всех сервисах"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                />
+                {query !== "" && (
+                    <button type="button" className="search-clear" title="Очистить" onClick={clearSearch}>
+                        <CloseIcon/>
+                    </button>
+                )}
                 <span className="tags">
-                    {onlineServices.map((service) => (
-                        <span key={service.code} className="tag" title={service.name}>{service.code}</span>
+                    {linkedServices.map((service) => (
+                        <button
+                            key={service.id}
+                            type="button"
+                            className={
+                                "tag tag-button"
+                                + (service.online ? " active" : "")
+                                + (unavailable.includes(service.id) ? " unavailable" : "")
+                            }
+                            title={getTagTitle(service)}
+                            disabled={togglingService !== null}
+                            onClick={() => toggleService(service)}
+                        >
+                            {service.code}
+                        </button>
                     ))}
                 </span>
             </form>

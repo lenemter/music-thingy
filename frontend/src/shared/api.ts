@@ -1,4 +1,5 @@
 import type { Album, Playlist, Service, Track, User, UserFile, Wave } from "./types.ts";
+import type { LinkStartResponse, LinkStatusResponse, MusicSearchResponse, PlaybackInfo, ServiceItem, TrackRead, UserFileRead } from "./music/types.ts";
 
 const TOKENS_KEY = "signal-tokens";
 const USER_KEY = "signal-user";
@@ -8,23 +9,46 @@ type Tokens = {
     refresh: string
 }
 
-const translations: Record<string, string> = {
-    "No active account found with the given credentials": "Неверная почта или пароль",
-    "user with this email address already exists.": "Пользователь с такой почтой уже зарегистрирован",
-    "Enter a valid email address.": "Введите корректную почту",
-    "Ensure this field has at least 8 characters.": "Пароль должен быть не короче 8 символов",
-    "This field may not be blank.": "Заполните все поля",
-    "This field is required.": "Заполните все поля",
-    "Token is invalid": "Сессия истекла, войдите снова",
-};
+const translations = [
+    { text: "No active account found", message: "Неверная почта или пароль" },
+    { text: "already exists", message: "Пользователь с такой почтой уже зарегистрирован" },
+    { text: "valid email", message: "Введите корректную почту" },
+    { text: "at least 8 characters", message: "Пароль должен быть не короче 8 символов" },
+    { text: "Token has expired", message: "Сессия истекла, войдите снова" },
+    { text: "Could not validate token", message: "Сессия истекла, войдите снова" },
+    { text: "Not authenticated", message: "Нужно войти в аккаунт" },
+    { text: "Unsupported audio format", message: "Такой формат не поддерживается — нужен MP3, WAV, FLAC, OGG, M4A или AAC" },
+    { text: "exceeds maximum size", message: "Файл больше 50 МБ" },
+];
 
 function translate(message: string) {
-    return translations[message] ?? message;
+    for (const item of translations) {
+        if (message.includes(item.text)) {
+            return item.message;
+        }
+    }
+    return message;
+}
+
+export class ApiError extends Error {
+    status: number
+
+    constructor(message: string, status: number) {
+        super(message);
+        this.status = status;
+    }
 }
 
 function getErrorMessage(data: Record<string, unknown>) {
-    if (typeof data.detail === "string") {
-        return translate(data.detail);
+    const detail = data.detail;
+
+    if (typeof detail === "string") {
+        return translate(detail);
+    }
+
+    if (Array.isArray(detail) && detail.length > 0) {
+        const first = detail[0] as Record<string, unknown>;
+        return translate(String(first.msg ?? first));
     }
 
     for (const key in data) {
@@ -66,7 +90,7 @@ export function getAccessToken() {
     return tokens ? tokens.access : null;
 }
 
-async function requestJson(url: string, options: RequestInit = {}) {
+async function sendRequest(url: string, options: RequestInit) {
     const token = getAccessToken();
     const headers: Record<string, string> = {
         Accept: "application/json",
@@ -81,7 +105,7 @@ async function requestJson(url: string, options: RequestInit = {}) {
     try {
         response = await fetch(url, { ...options, headers });
     } catch {
-        throw new Error("Сервер недоступен, попробуйте позже");
+        throw new ApiError("Сервер недоступен, попробуйте позже", 0);
     }
 
     if (response.status === 204) {
@@ -96,10 +120,22 @@ async function requestJson(url: string, options: RequestInit = {}) {
     }
 
     if (!response.ok) {
-        throw new Error(getErrorMessage(data));
+        throw new ApiError(getErrorMessage(data), response.status);
     }
 
     return data;
+}
+
+async function requestJson(url: string, options: RequestInit = {}) {
+    try {
+        return await sendRequest(url, options);
+    } catch (error) {
+        const isAuthUrl = url.startsWith("/api/auth/token") || url.startsWith("/api/auth/login");
+        if (error instanceof ApiError && error.status === 401 && !isAuthUrl && await refreshTokens()) {
+            return sendRequest(url, options);
+        }
+        throw error;
+    }
 }
 
 async function postJson(url: string, body: object) {
@@ -112,12 +148,27 @@ async function postJson(url: string, body: object) {
 
 // ================= AUTH =================
 
+export async function fetchMe(): Promise<User | null> {
+    try {
+        const data = await requestJson("/api/auth/me");
+        const email = String(data.email);
+        const name = data.display_name ? String(data.display_name) : email.split("@")[0];
+        const user: User = { name, email };
+        saveUser(user);
+        return user;
+    } catch {
+        return null;
+    }
+}
+
 export async function login(email: string, password: string, name?: string) {
     const data = await postJson("/api/auth/token/", { email, password });
     saveTokens({ access: String(data.access), refresh: String(data.refresh) });
     const user: User = { name: name || email.split("@")[0], email };
     saveUser(user);
-    return user;
+
+    const me = await fetchMe();
+    return me ?? user;
 }
 
 export async function register(email: string, name: string, password: string) {
@@ -134,11 +185,18 @@ async function requestNewTokens() {
     }
 
     try {
-        const data = await postJson("/api/auth/token/refresh/", { refresh: tokens.refresh });
+        const data = await sendRequest("/api/auth/token/refresh/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refresh: tokens.refresh }),
+        });
         saveTokens({ access: String(data.access), refresh: String(data.refresh ?? tokens.refresh) });
         return true;
-    } catch {
-        return false;
+    } catch (error) {
+        if (error instanceof ApiError && (error.status === 400 || error.status === 401 || error.status === 422)) {
+            return false;
+        }
+        return true;
     }
 }
 
@@ -158,16 +216,41 @@ export function logout() {
 
 // ================= SERVICES =================
 
+function serviceFromItem(item: ServiceItem): Service {
+    return {
+        id: item.service,
+        code: item.code,
+        name: item.name,
+        shortName: item.shortName,
+        online: item.online,
+        linked: item.linked ?? false,
+    };
+}
+
 export async function fetchServices(): Promise<Service[]> {
-    return requestJson("/api/services");
+    const items: ServiceItem[] = await requestJson("/api/services");
+    return items.map(serviceFromItem);
 }
 
 export async function updateServicePreferences(enabledServices: string[]): Promise<Service[]> {
-    return requestJson("/api/services/preferences", {
+    const items: ServiceItem[] = await requestJson("/api/services/preferences", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled_services: enabledServices }),
     });
+    return items.map(serviceFromItem);
+}
+
+export async function startServiceLink(service: string): Promise<LinkStartResponse> {
+    return requestJson(`/api/services/${service}/link`, { method: "POST" });
+}
+
+export async function getServiceLinkStatus(service: string, sessionId: string): Promise<LinkStatusResponse> {
+    return requestJson(`/api/services/${service}/link/${sessionId}`);
+}
+
+export async function unlinkService(service: string): Promise<void> {
+    await requestJson(`/api/services/${service}/link`, { method: "DELETE" });
 }
 
 // ================= MUSIC & SEARCH =================
@@ -179,16 +262,7 @@ export type SearchMusicParams = {
     limit?: number
 }
 
-export type SearchMusicResult = {
-    query: string
-    tracks: Track[]
-    albums: Album[]
-    artists: Array<{ service: string; service_id: string; name: string; cover?: string }>
-    playlists: Array<{ id: number; name: string; cover: string; description?: string }>
-    errors: Array<{ service: string; kind: string; message: string }>
-}
-
-export async function searchMusic({ query, services, types, limit = 10 }: SearchMusicParams): Promise<SearchMusicResult> {
+export async function searchMusic({ query, services, types, limit = 10 }: SearchMusicParams): Promise<MusicSearchResponse> {
     const params = new URLSearchParams();
     params.set("q", query);
     if (services && services.length > 0) params.set("services", services.join(","));
@@ -198,12 +272,12 @@ export async function searchMusic({ query, services, types, limit = 10 }: Search
     return requestJson(`/api/music/search?${params.toString()}`);
 }
 
-export async function fetchTrack(service: string, serviceId: string): Promise<Track> {
-    return requestJson(`/api/music/tracks/${service}/${serviceId}`);
+export async function fetchTrack(service: string, serviceId: string): Promise<TrackRead> {
+    return requestJson(`/api/music/tracks/${service}/${encodeURIComponent(serviceId)}`);
 }
 
-export async function fetchPlayback(service: string, serviceId: string): Promise<{ kind: string; ref: string }> {
-    return requestJson(`/api/music/playback/${service}/${serviceId}`);
+export async function fetchPlayback(service: string, serviceId: string): Promise<PlaybackInfo> {
+    return requestJson(`/api/music/playback/${service}/${encodeURIComponent(serviceId)}`);
 }
 
 // ================= PLAYLISTS =================
@@ -317,32 +391,59 @@ export async function fetchWave(): Promise<Wave> {
 
 // ================= OWN MUSIC & UPLOADS =================
 
+function fileFromRead(item: UserFileRead): UserFile {
+    return {
+        id: item.id,
+        name: item.name,
+        type: item.type,
+        duration: item.duration,
+        size: item.size,
+        audioUrl: item.audio_url,
+        isEdited: item.is_edited,
+        artist: item.artist || "Моя музыка",
+        cover: item.cover_url || undefined,
+    };
+}
+
+export async function updateUpload(uploadId: number, data: { title: string, artist: string }): Promise<UserFile> {
+    const item: UserFileRead = await requestJson(`/api/uploads/${uploadId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    return fileFromRead(item);
+}
+
+export async function uploadCover(uploadId: number, image: Blob): Promise<UserFile> {
+    const formData = new FormData();
+    formData.append("file", image, "cover.jpg");
+    const item: UserFileRead = await requestJson(`/api/uploads/${uploadId}/cover`, {
+        method: "PUT",
+        body: formData,
+    });
+    return fileFromRead(item);
+}
+
+export async function removeCover(uploadId: number): Promise<void> {
+    await requestJson(`/api/uploads/${uploadId}/cover`, { method: "DELETE" });
+}
+
 export async function fetchUploads(): Promise<UserFile[]> {
-    return requestJson("/api/uploads");
+    const items: UserFileRead[] = await requestJson("/api/uploads");
+    return items.map(fileFromRead);
 }
 
 export async function uploadAudioFile(file: File, title?: string, artist?: string): Promise<UserFile> {
-    const token = getAccessToken();
     const formData = new FormData();
     formData.append("file", file);
     if (title) formData.append("title", title);
     if (artist) formData.append("artist", artist);
 
-    const headers: Record<string, string> = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
-    const resp = await fetch("/api/uploads", {
+    const item: UserFileRead = await requestJson("/api/uploads", {
         method: "POST",
-        headers,
         body: formData,
     });
-
-    if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(getErrorMessage(data));
-    }
-
-    return resp.json();
+    return fileFromRead(item);
 }
 
 export async function deleteUpload(uploadId: number): Promise<void> {

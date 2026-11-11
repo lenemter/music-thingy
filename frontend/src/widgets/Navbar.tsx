@@ -11,9 +11,12 @@ import PlusIcon from "../shared/icons/plus.svg?react";
 type NavbarProps = {
     playlists: Playlist[]
     services: Service[]
+    onOpenSources: () => void
+    page: "home" | "library"
+    onNavigate: (page: "home" | "library") => void
 }
 
-function Navbar({ playlists, services }: NavbarProps) {
+function Navbar({ playlists, services, onOpenSources, page, onNavigate }: NavbarProps) {
     const onlineCount = services.filter((service) => service.online).length;
 
     return (
@@ -21,11 +24,23 @@ function Navbar({ playlists, services }: NavbarProps) {
             <Logo/>
 
             <div className="nav-group">
-                <a className="nav-link active" href="#"><HomeIcon/>Главная</a>
+                <a
+                    className={page === "home" ? "nav-link active" : "nav-link"}
+                    href="#"
+                    onClick={(event) => { event.preventDefault(); onNavigate("home"); }}
+                >
+                    <HomeIcon/>Главная
+                </a>
                 <a className="nav-link" href="#"><SearchIcon/>Поиск</a>
-                <a className="nav-link" href="#"><LibraryIcon/>Медиатека</a>
+                <a
+                    className={page === "library" ? "nav-link active" : "nav-link"}
+                    href="#"
+                    onClick={(event) => { event.preventDefault(); onNavigate("library"); }}
+                >
+                    <LibraryIcon/>Медиатека
+                </a>
                 <a className="nav-link" href="#"><EditorIcon/>Редактор</a>
-                <a className="nav-link" href="#"><SourcesIcon/>Источники</a>
+                <a className="nav-link" href="#" onClick={(event) => { event.preventDefault(); onOpenSources(); }}><SourcesIcon/>Источники</a>
             </div>
 
             <div className="nav-group">
@@ -42,11 +57,11 @@ function Navbar({ playlists, services }: NavbarProps) {
                 ))}
             </div>
 
-            <a className="sources-card" href="#">
-                <span className="label">ЭФИР · {onlineCount} ИЗ {services.length}</span>
+            <a className="sources-card" href="#" onClick={(event) => { event.preventDefault(); onOpenSources(); }}>
+                <span className="label">ИСТОЧНИКИ · {onlineCount} ИЗ {services.length}</span>
                 <span className="sources-list">
                     {services.map((service) => (
-                        <span key={service.code} className={service.online ? "source" : "source offline"}>
+                        <span key={service.id} className={service.online ? "source" : "source offline"}>
                             <span className="source-dot"/>
                             {service.shortName}
                         </span>
