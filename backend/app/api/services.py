@@ -5,6 +5,7 @@ import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from starlette.concurrency import run_in_threadpool
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from ytmusicapi import YTMusic
@@ -20,6 +21,8 @@ from app.schemas.service import (
     ServiceConnectionStatus,
     ServiceStatusRead,
     ToggleServiceRequest,
+    VkLoginRequest,
+    YandexPollTokenRequest,
     YouTubeDeviceCodeResponse,
     YouTubePollTokenRequest,
 )
@@ -399,3 +402,201 @@ async def poll_youtube_token(
 
     await db.commit()
     return {"status": "connected", "service": "youtube", "account_name": "YouTube Music"}
+
+
+@router.post("/yandex/oauth/device-code", response_model=YouTubeDeviceCodeResponse)
+async def get_yandex_device_code(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> YouTubeDeviceCodeResponse:
+    """Starts Yandex OAuth Device Flow: returns a code the user enters on the verification page."""
+    from yandex_music import Client
+
+    try:
+        code = await run_in_threadpool(Client().request_device_code)
+    except Exception as e:
+        logger.warning("Failed to obtain Yandex device code: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Не удалось получить код входа Яндекса: {e}",
+        )
+
+    return YouTubeDeviceCodeResponse(
+        device_code=code.device_code,
+        user_code=code.user_code,
+        verification_url=code.verification_url,
+        expires_in=code.expires_in,
+        interval=code.interval,
+    )
+
+
+@router.post("/yandex/oauth/poll-token")
+async def poll_yandex_token(
+    req: YandexPollTokenRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+):
+    """Polls Yandex for the token after the user confirms the code, then saves it to the user account."""
+    from yandex_music import Client
+    from yandex_music.exceptions import DeviceAuthError
+
+    try:
+        token = await run_in_threadpool(Client().poll_device_token, req.device_code)
+    except DeviceAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Вход в Яндекс не завершён: {e}",
+        )
+
+    if token is None:
+        return {"status": "pending", "message": "Ожидание подтверждения пользователем"}
+
+    account_name = "Яндекс Музыка"
+    account_id: str | None = None
+    try:
+        ym_client = await run_in_threadpool(Client(token.access_token).init)
+        if ym_client.me and ym_client.me.account:
+            account_name = ym_client.me.account.full_name or ym_client.me.account.login or account_name
+            account_id = str(ym_client.me.account.uid) if ym_client.me.account.uid else None
+    except Exception as e:
+        logger.warning("Yandex account info failed: %s", e)
+
+    stmt = select(UserServiceAccount).where(
+        UserServiceAccount.user_id == current_user.id,
+        UserServiceAccount.service == Service.YANDEX.value,
+    )
+    res = await db.exec(stmt)
+    acc = res.first()
+
+    if not acc:
+        acc = UserServiceAccount(
+            user_id=current_user.id or 0,
+            service=Service.YANDEX.value,
+            token=token.access_token,
+            refresh_token=token.refresh_token,
+            account_name=account_name,
+            account_id=account_id,
+            is_active=True,
+        )
+        db.add(acc)
+    else:
+        acc.token = token.access_token
+        acc.refresh_token = token.refresh_token or acc.refresh_token
+        acc.account_name = account_name
+        acc.account_id = account_id or acc.account_id
+        acc.is_active = True
+        db.add(acc)
+
+    await db.commit()
+    return {"status": "connected", "service": "yandex", "account_name": account_name}
+
+
+def _vk_login_step(login: str, password: str, code: str | None) -> dict[str, Any]:
+    """One step of VK login by login/password. Returns the token or what VK asks for next."""
+    from vkpymusic import Service as VkService
+    from vkpymusic import VkMobileClient
+    from vkpymusic.vk_api import VkApiException
+    from vkpymusic.vk_api.vk_api_extensions import make_request
+    from vkpymusic.vk_api.vk_api_request_builder import VkApiRequestBuilder
+
+    client = VkMobileClient
+    request = VkApiRequestBuilder.build_req_auth(login=login, password=password, client=client, code=code)
+    try:
+        response = make_request(request)
+    except VkApiException as e:
+        details = e.details if isinstance(e.details, dict) else {}
+        error = details.get("error")
+        if error == "need_validation":
+            sid = details.get("validation_sid")
+            if sid and not code:
+                try:
+                    make_request(VkApiRequestBuilder.build_req_2fa_code(client=client, sid=sid))
+                except VkApiException:
+                    pass
+            return {
+                "status": "need_code",
+                "validation_type": details.get("validation_type"),
+                "phone_mask": details.get("phone_mask"),
+            }
+        if error == "invalid_request":
+            return {"status": "need_code", "invalid_code": True}
+        if error == "need_captcha":
+            return {"status": "need_captcha"}
+        if error == "invalid_client":
+            return {"status": "error", "message": "Неверный логин или пароль"}
+        if error == "9;Flood control" or details.get("error_type") == "password_bruteforce_attempt":
+            return {"status": "error", "message": "Слишком много попыток входа. Попробуйте позже"}
+        return {"status": "error", "message": details.get("error_description") or "VK отклонил вход"}
+
+    token = response.data.get("access_token") if response and response.data else None
+    if not token:
+        return {"status": "error", "message": "VK не выдал токен"}
+
+    account_name = "VK Музыка"
+    try:
+        info = VkService(client.user_agent, token).get_user_info()
+        name = " ".join(part for part in (getattr(info, "first_name", None), getattr(info, "last_name", None)) if part)
+        account_name = name or account_name
+    except Exception as e:
+        logger.warning("VK user info failed: %s", type(e).__name__)
+
+    return {
+        "status": "connected",
+        "token": token,
+        "user_agent": client.user_agent,
+        "account_name": account_name,
+        "account_id": str(response.data.get("user_id")) if response.data.get("user_id") else None,
+    }
+
+
+@router.post("/vk/login")
+async def login_vk(
+    req: VkLoginRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+):
+    """Links VK Music by login and password. The password is used once and never stored."""
+    if not req.login.strip() or not req.password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Введите логин и пароль VK")
+
+    try:
+        result = await run_in_threadpool(
+            _vk_login_step, req.login.strip(), req.password, (req.code or "").strip() or None
+        )
+    except Exception as e:
+        logger.warning("VK login failed: %s", type(e).__name__)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Не удалось связаться с VK")
+
+    if result["status"] == "error":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])
+    if result["status"] != "connected":
+        return result
+
+    stmt = select(UserServiceAccount).where(
+        UserServiceAccount.user_id == current_user.id,
+        UserServiceAccount.service == Service.VK.value,
+    )
+    res = await db.exec(stmt)
+    acc = res.first()
+    extra_data = json.dumps({"user_agent": result["user_agent"]})
+
+    if not acc:
+        acc = UserServiceAccount(
+            user_id=current_user.id or 0,
+            service=Service.VK.value,
+            token=result["token"],
+            extra_data=extra_data,
+            account_name=result["account_name"],
+            account_id=result["account_id"],
+            is_active=True,
+        )
+        db.add(acc)
+    else:
+        acc.token = result["token"]
+        acc.extra_data = extra_data
+        acc.account_name = result["account_name"]
+        acc.account_id = result["account_id"] or acc.account_id
+        acc.is_active = True
+        db.add(acc)
+
+    await db.commit()
+    return {"status": "connected", "service": "vk", "account_name": result["account_name"]}

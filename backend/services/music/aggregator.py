@@ -395,8 +395,13 @@ class MusicAggregator:
 
         return merged
 
-    async def get_track(self, service: Service | str, service_id: str) -> TrackDTO | None:
-        adapter = self.get_adapter(service)
+    async def get_track(
+        self,
+        service: Service | str,
+        service_id: str,
+        adapter: BaseMusicAdapter | None = None,
+    ) -> TrackDTO | None:
+        adapter = adapter or self.get_adapter(service)
         if not adapter:
             return None
         return await asyncio.to_thread(adapter.get_track, service_id)
@@ -413,8 +418,13 @@ class MusicAggregator:
             return None
         return await asyncio.to_thread(adapter.get_artist, service_id)
 
-    async def get_playlist(self, service: Service | str, service_id: str) -> PlaylistDTO | None:
-        adapter = self.get_adapter(service)
+    async def get_playlist(
+        self,
+        service: Service | str,
+        service_id: str,
+        adapter: BaseMusicAdapter | None = None,
+    ) -> PlaylistDTO | None:
+        adapter = adapter or self.get_adapter(service)
         if not adapter:
             return None
         return await asyncio.to_thread(adapter.get_playlist, service_id)

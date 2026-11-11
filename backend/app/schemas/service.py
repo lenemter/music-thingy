@@ -44,3 +44,13 @@ class YouTubePollTokenRequest(BaseModel):
     device_code: str
     client_id: str | None = None
     client_secret: str | None = None
+
+
+class YandexPollTokenRequest(BaseModel):
+    device_code: str
+
+
+class VkLoginRequest(BaseModel):
+    login: str
+    password: str
+    code: str | None = None

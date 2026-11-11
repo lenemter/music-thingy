@@ -33,6 +33,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/music", tags=["music"])
 
 
+async def get_user_adapter(
+    db: AsyncSession,
+    user: User | None,
+    service: str,
+) -> BaseMusicAdapter | None:
+    """Adapter with the user's own credentials (full tracks instead of previews), if the service is linked."""
+    s_enum = CODE_TO_SERVICE_MAP.get(service.lower())
+    if not user or not user.id or not s_enum:
+        return None
+    stmt = select(UserServiceAccount).where(
+        UserServiceAccount.user_id == user.id,
+        UserServiceAccount.service == s_enum.value,
+    )
+    res = await db.exec(stmt)
+    acc = res.first()
+    if not acc or not acc.is_active or not (acc.token or acc.extra_data):
+        return None
+    return aggregator.create_user_adapter(s_enum, token=acc.token, extra_data=acc.extra_data)
+
+
 @router.get("/services", response_model=list[ServiceStatusRead])
 async def list_music_services() -> list[ServiceStatusRead]:
     """Returns the list of music source services and their online status."""
@@ -201,9 +221,11 @@ async def get_track(
     service: str,
     service_id: str,
     current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
+    db: AsyncSession = Depends(get_db),
 ) -> TrackRead:
     """Retrieve full track metadata and playback parameters by service and service ID."""
-    track_dto = await aggregator.get_track(service, service_id)
+    user_adapter = await get_user_adapter(db, current_user, service)
+    track_dto = await aggregator.get_track(service, service_id, adapter=user_adapter)
     if not track_dto:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -218,9 +240,11 @@ async def get_playback_info(
     service: str,
     service_id: str,
     current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
+    db: AsyncSession = Depends(get_db),
 ) -> PlaybackInfo:
     """Retrieve playback parameters (iframe ref, SDK ref, direct audio url) for a track."""
-    track_dto = await aggregator.get_track(service, service_id)
+    user_adapter = await get_user_adapter(db, current_user, service)
+    track_dto = await aggregator.get_track(service, service_id, adapter=user_adapter)
     if not track_dto:
         # Fallback ref based on known service format if track metadata cannot be resolved
         s_enum = CODE_TO_SERVICE_MAP.get(service.lower())
@@ -354,9 +378,15 @@ async def get_artist(service: str, service_id: str) -> ArtistRead:
 
 
 @router.get("/playlists/{service}/{service_id}", response_model=PlaylistRead)
-async def get_playlist(service: str, service_id: str) -> PlaylistRead:
-    """Retrieve playlist details and tracklist by service and playlist ID."""
-    pl_dto = await aggregator.get_playlist(service, service_id)
+async def get_playlist(
+    service: str,
+    service_id: str,
+    current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
+    db: AsyncSession = Depends(get_db),
+) -> PlaylistRead:
+    """Retrieve playlist details and tracklist by service and playlist ID (private ones need a linked account)."""
+    user_adapter = await get_user_adapter(db, current_user, service)
+    pl_dto = await aggregator.get_playlist(service, service_id, adapter=user_adapter)
     if not pl_dto:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
