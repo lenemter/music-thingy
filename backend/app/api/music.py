@@ -11,7 +11,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import get_current_user, get_optional_current_user
 from app.config import settings
-from app.core.streaming import create_stream_signature
+from app.core.streaming import (
+    create_service_stream_signature,
+    create_stream_signature,
+    verify_service_stream_signature,
+)
 from app.database import get_db
 from app.models.service_account import UserServiceAccount
 from app.models.upload import UserUpload
@@ -278,7 +282,19 @@ async def get_track(
             detail=f"Track '{service_id}' on service '{service}' not found",
         )
 
-    return TrackRead(**track_dto.to_frontend_dict())
+    t_dict = track_dto.to_frontend_dict()
+    if track_dto.direct_audio_url and track_dto.service == Service.YANDEX:
+        # Yandex CDN blocks browser origins (CORS 403 Forbidden). Route through stream proxy.
+        stream_url = f"/api/music/tracks/{track_dto.service.value}/{track_dto.service_id}/stream"
+        if current_user and current_user.id:
+            sig = create_service_stream_signature(track_dto.service.value, track_dto.service_id, current_user.id)
+            stream_url = f"{stream_url}?u={current_user.id}&sig={sig}"
+        t_dict["direct_audio_url"] = stream_url
+        if t_dict.get("playback"):
+            t_dict["playback"]["direct_audio_url"] = stream_url
+        t_dict["stream_url"] = stream_url
+
+    return TrackRead(**t_dict)
 
 
 @router.get("/playback/{service}/{service_id}", response_model=PlaybackInfo)
@@ -358,6 +374,10 @@ async def stream_track_audio(
     service_id: str,
     request: Request,
     redirect: bool = Query(False, description="Redirect directly to CDN audio URL"),
+    u: int | None = Query(None, description="User ID for signed stream"),
+    sig: str | None = Query(None, description="HMAC stream signature"),
+    current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
+    db: AsyncSession = Depends(get_db),
 ):
     """Stream audio content for a track with HTTP Range header support or redirect to direct audio URL."""
     if service.lower() == "local":
@@ -366,7 +386,14 @@ async def stream_track_audio(
             status_code=status.HTTP_307_TEMPORARY_REDIRECT,
         )
 
-    track_dto = await aggregator.get_track(service, service_id)
+    # Authenticate user from Authorization header OR verified time-limited HMAC stream signature
+    effective_user: User | None = current_user
+    if not effective_user and u is not None and sig:
+        if verify_service_stream_signature(service, service_id, u, sig):
+            effective_user = await db.get(User, u)
+
+    user_adapter = await get_user_adapter(db, effective_user, service)
+    track_dto = await aggregator.get_track(service, service_id, adapter=user_adapter)
     if not track_dto or not track_dto.direct_audio_url:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -378,7 +405,9 @@ async def stream_track_audio(
     if redirect:
         return RedirectResponse(url=audio_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
-    headers = {}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     range_header = request.headers.get("range")
     if range_header:
         headers["Range"] = range_header

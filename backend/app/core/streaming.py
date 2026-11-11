@@ -40,6 +40,33 @@ def verify_stream_signature(upload_id: int, user_id: int, sig_str: str) -> bool:
         return False
 
 
+def create_service_stream_signature(service: str, service_id: str, user_id: int, expires_in: int | None = None) -> str:
+    """Create a time-limited HMAC signature for external service streaming without Authorization headers."""
+    if expires_in is None:
+        expires_in = settings.STREAM_SIGNATURE_EXPIRE_SECONDS
+    expires_at = int(time.time()) + expires_in
+    payload = f"{service.lower()}:{service_id}:{user_id}:{expires_at}"
+    digest = hmac.new(settings.SECRET_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{expires_at}.{digest}"
+
+
+def verify_service_stream_signature(service: str, service_id: str, user_id: int, sig_str: str) -> bool:
+    """Verify that the service stream signature is valid and has not expired."""
+    try:
+        parts = sig_str.strip().split(".")
+        if len(parts) != 2:
+            return False
+        expires_at_str, digest = parts
+        expires_at = int(expires_at_str)
+        if expires_at < int(time.time()):
+            return False
+        payload = f"{service.lower()}:{service_id}:{user_id}:{expires_at}"
+        expected = hmac.new(settings.SECRET_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(digest, expected)
+    except Exception:
+        return False
+
+
 def range_stream_response(
     file_path: str | Path,
     request: Request,
