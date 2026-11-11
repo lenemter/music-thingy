@@ -386,7 +386,102 @@
 
 ---
 
-## 4. Подключение новых адаптеров в будущем
+## 4. Пользовательские загрузки (`/api/uploads`)
+
+Позволяет пользователю загружать собственные аудиофайлы (MP3, WAV, FLAC, OGG, M4A, AAC до 50 МБ), редактировать их метаданные (название, исполнитель), управлять обложками (загруженная картинка или шаблонная обложка `template:<номер>`), и воспроизводить аудио через `<audio src="...">` со стримингом и поддержкой HTTP Range (`206 Partial Content`).
+
+Все загруженные треки доступны в общем формате `TrackRead` как `service = "local"`, `sources = ["ФАЙЛ"]`.
+
+### 4.1. Список загрузок
+- **Маршрут:** `GET /api/uploads`
+- **Заголовки:** `Authorization: Bearer <access_token>`
+- **Ответ (200 OK):**
+```json
+[
+  {
+    "id": 12,
+    "name": "Радиовышка",
+    "artist": "Low Tower",
+    "type": "MP3",
+    "duration": 276,
+    "size": 8.4,
+    "audio_url": "/api/uploads/12/stream?sig=...",
+    "cover_url": "/api/uploads/12/cover",
+    "created_at": "2026-11-11T12:00:00Z"
+  }
+]
+```
+
+---
+
+### 4.2. Загрузка файла
+- **Маршрут:** `POST /api/uploads`
+- **Заголовки:** `Authorization: Bearer <access_token>`
+- **Content-Type:** `multipart/form-data`
+- **Параметры формы:**
+  - `file`: Аудиофайл (обязательное; форматы MP3, WAV, FLAC, OGG, M4A, AAC; до 50 МБ).
+  - `title`: Название (опционально; если не передано, извлекается из ID3/Vorbis/MP4 тегов через mutagen или из имени файла).
+  - `artist`: Исполнитель (опционально; если не передано, извлекается из тегов или по умолчанию `"Моя музыка"`).
+  - `cover`: Картинка обложки (файл JPEG/PNG) или строка шаблонной обложки (`"template:3"`). Если не передано, автоматически извлекается встроенная обложка из тегов аудиофайла (ID3 APIC, FLAC pictures, M4A covr, OGG metadata_block_picture).
+- **Ответ (201 Created):** Объект `UserFileRead`.
+
+---
+
+### 4.3. Редактирование информации о треке
+- **Маршрут:** `PATCH /api/uploads/{id}`
+- **Заголовки:** `Authorization: Bearer <access_token>`
+- **Тело запроса (JSON):**
+```json
+{
+  "title": "Новое название",
+  "artist": "Новый артист"
+}
+```
+- **Ответ (200 OK):** Обновлённый объект `UserFileRead`.
+
+---
+
+### 4.4. Обновление обложки
+- **Маршрут:** `PUT /api/uploads/{id}/cover`
+- **Заголовки:** `Authorization: Bearer <access_token>`
+- **Вариант 1 (Файл):** `multipart/form-data`, поле `file` с изображением (JPEG, PNG, WebP).
+- **Вариант 2 (Шаблонная обложка):** JSON `{"cover": "template:5"}` или поле формы `cover: "template:5"`.
+- **Ответ (200 OK):** Обновлённый объект `UserFileRead`.
+
+---
+
+### 4.5. Удаление обложки
+- **Маршрут:** `DELETE /api/uploads/{id}/cover`
+- **Заголовки:** `Authorization: Bearer <access_token>`
+- **Ответ (200 OK):** Обновлённый объект `UserFileRead` (`cover_url: null`).
+
+---
+
+### 4.6. Удаление загрузки
+- **Маршрут:** `DELETE /api/uploads/{id}`
+- **Заголовки:** `Authorization: Bearer <access_token>`
+- **Ответ (204 No Content):** Файл и обложка удаляются с диска и из базы данных.
+
+---
+
+### 4.7. Стриминг аудиодорожки
+- **Маршрут:** `GET /api/uploads/{id}/stream`
+- **Авторизация (любой из вариантов):**
+  - Подписанный query-параметр `?sig=...` (сгенерирован сервером в `audio_url`, срок действия 7 дней, позволяет вставлять ссылку прямо в `<audio src="...">` без заголовков).
+  - Query-параметр `?token=...` (JWT access token).
+  - Cookie `access_token`.
+  - Заголовок `Authorization: Bearer <access_token>`.
+- **Поддержка HTTP Range:** Возвращает `206 Partial Content` с заголовками `Content-Range`, `Content-Length`, `Accept-Ranges: bytes` для мгновенной перемотки.
+
+---
+
+### 4.8. Получение картинки обложки
+- **Маршрут:** `GET /api/uploads/{id}/cover`
+- **Описание:** Отдаёт бинарный файл загруженной обложки (`image/jpeg`, `image/png`). Публично доступен для использования в `<img src="...">`.
+
+---
+
+## 5. Подключение новых адаптеров в будущем
 
 Для добавления нового музыкального сервиса (например, Spotify или SoundCloud):
 1. Реализуйте подкласс `BaseMusicAdapter` в `backend/services/music/<service>.py`.

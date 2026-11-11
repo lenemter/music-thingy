@@ -11,8 +11,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import get_current_user, get_optional_current_user
 from app.config import settings
+from app.core.streaming import create_stream_signature
 from app.database import get_db
 from app.models.service_account import UserServiceAccount
+from app.models.upload import UserUpload
 from app.models.user import User
 from app.schemas.music import (
     AlbumRead,
@@ -224,6 +226,50 @@ async def get_track(
     db: AsyncSession = Depends(get_db),
 ) -> TrackRead:
     """Retrieve full track metadata and playback parameters by service and service ID."""
+    if service.lower() == "local":
+        try:
+            up_id = int(service_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Local track '{service_id}' not found",
+            )
+        upload = await db.get(UserUpload, up_id)
+        if not upload:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Local track '{service_id}' not found",
+            )
+        sig = create_stream_signature(upload.id or 0, upload.user_id)
+        stream_url = f"/api/uploads/{upload.id}/stream?sig={sig}"
+        cover_val = upload.cover_template if upload.cover_template else (
+            f"/api/uploads/{upload.id}/cover" if upload.cover_file else None
+        )
+        return TrackRead(
+            id=upload.id or 0,
+            track_key=f"local:{upload.id}",
+            service="local",
+            service_id=str(upload.id),
+            title=upload.title,
+            artist=upload.artist,
+            artists=[upload.artist],
+            cover=cover_val or "",
+            artwork_url=cover_val,
+            duration=upload.duration_seconds,
+            duration_ms=upload.duration_seconds * 1000,
+            sources=["ФАЙЛ"],
+            source="ФАЙЛ",
+            is_playable=True,
+            liked=False,
+            direct_audio_url=stream_url,
+            stream_url=stream_url,
+            playback=PlaybackInfo(
+                kind="direct_url",
+                ref=stream_url,
+                direct_audio_url=stream_url,
+            ),
+        )
+
     user_adapter = await get_user_adapter(db, current_user, service)
     track_dto = await aggregator.get_track(service, service_id, adapter=user_adapter)
     if not track_dto:
@@ -243,6 +289,28 @@ async def get_playback_info(
     db: AsyncSession = Depends(get_db),
 ) -> PlaybackInfo:
     """Retrieve playback parameters (iframe ref, SDK ref, direct audio url) for a track."""
+    if service.lower() == "local":
+        try:
+            up_id = int(service_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Local track '{service_id}' not found",
+            )
+        upload = await db.get(UserUpload, up_id)
+        if not upload:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Local track '{service_id}' not found",
+            )
+        sig = create_stream_signature(upload.id or 0, upload.user_id)
+        stream_url = f"/api/uploads/{upload.id}/stream?sig={sig}"
+        return PlaybackInfo(
+            kind="direct_url",
+            ref=stream_url,
+            direct_audio_url=stream_url,
+        )
+
     user_adapter = await get_user_adapter(db, current_user, service)
     track_dto = await aggregator.get_track(service, service_id, adapter=user_adapter)
     if not track_dto:
@@ -292,6 +360,12 @@ async def stream_track_audio(
     redirect: bool = Query(False, description="Redirect directly to CDN audio URL"),
 ):
     """Stream audio content for a track with HTTP Range header support or redirect to direct audio URL."""
+    if service.lower() == "local":
+        return RedirectResponse(
+            url=f"/api/uploads/{service_id}/stream",
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        )
+
     track_dto = await aggregator.get_track(service, service_id)
     if not track_dto or not track_dto.direct_audio_url:
         raise HTTPException(
