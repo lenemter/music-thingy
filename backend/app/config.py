@@ -1,3 +1,4 @@
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +18,11 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    STREAM_SIGNATURE_EXPIRE_SECONDS: int = 86400 * 7
+
+    # Uploads
+    UPLOAD_DIR: str = "uploads"
+    MAX_UPLOAD_SIZE_BYTES: int = 50 * 1024 * 1024  # 50 MB
 
     # Database
     DATABASE_URL: str | None = None
@@ -42,6 +48,13 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://localhost:8000",
     ]
+
+    @property
+    def upload_dir_path(self) -> Path:
+        p = Path(self.UPLOAD_DIR)
+        if not p.is_absolute():
+            p = Path(__file__).resolve().parent.parent / p
+        return p
 
     @property
     def async_database_url(self) -> str:

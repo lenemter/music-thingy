@@ -16,6 +16,7 @@ from app.schemas.service import (
     YouTubeDeviceCodeResponse,
     YouTubePollTokenRequest,
 )
+from app.schemas.upload import CoverUpdateRequest, TrackEditRequest, UserFileRead
 from app.schemas.user import UserBase, UserCreate, UserRead
 
 __all__ = [
@@ -38,4 +39,7 @@ __all__ = [
     "ToggleServiceRequest",
     "YouTubeDeviceCodeResponse",
     "YouTubePollTokenRequest",
+    "UserFileRead",
+    "TrackEditRequest",
+    "CoverUpdateRequest",
 ]
