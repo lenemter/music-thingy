@@ -2878,7 +2878,6 @@ body {
 
 /* ===== Очередь ===== */
 
-/* Сильнее, чем общее правило наведения для кнопок плеера, которое делает фон прозрачным */
 .player-right .queue-toggle.active,
 .player-right .queue-toggle.active:hover {
   background-color: var(--black);

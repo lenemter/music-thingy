@@ -18,6 +18,7 @@ if sys.platform == "win32":
 from app.api.auth import router as auth_router
 from app.api.music import router as music_router
 from app.api.services import router as services_router
+from app.api.uploads import router as uploads_router
 from app.config import settings
 from app.database import close_db, init_db
 
@@ -54,6 +55,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(music_router)
 app.include_router(services_router)
+app.include_router(uploads_router)
 
 
 @app.get("/health", tags=["system"])

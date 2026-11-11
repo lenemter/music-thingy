@@ -96,7 +96,6 @@ function App() {
 
     const [nameModal, setNameModal] = useState<NameModal | null>(null);
     const [trackToAdd, setTrackToAdd] = useState<Track | null>(null);
-    // Очередь закрывается с анимацией: сначала «closing», через 200 мс панель убирается
     const [queueState, setQueueState] = useState<"closed" | "open" | "closing">("closed");
     const isQueueOpen = queueState === "open";
     const closeQueue = useCallback(() => setQueueState((state) => (state === "open" ? "closing" : state)), []);

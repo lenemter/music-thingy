@@ -20,3 +20,4 @@ ytmusicapi>=1.8.0
 yt-dlp>=2024.0.0
 vkpymusic>=4.0.0
 curl_cffi>=0.7.0
+mutagen>=1.47.0
