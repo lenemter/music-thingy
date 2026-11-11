@@ -194,12 +194,12 @@ class VkMusicAdapter(BaseMusicAdapter):
         if SearchType.TRACK in types:
             with self._throttled(), _translate_errors():
                 songs = self._vk.search_songs_by_text(query, count=count)
-            tracks = tuple(d for s in songs or [] if (d := _to_track(s)))[:limit]
+            tracks = tuple(dt for s in songs or [] if (dt := _to_track(s)))[:limit]
 
         if SearchType.PLAYLIST in types:
             with self._throttled(), _translate_errors():
                 found = self._vk.search_playlists_by_text(query, count=count)
-            playlists = tuple(d for p in found or [] if (d := _to_playlist(p)))[:limit]
+            playlists = tuple(dp for p in found or [] if (dp := _to_playlist(p)))[:limit]
 
         if SearchType.ARTIST in types:
             errors += (ServiceErrorDTO(service=Service.VK, kind=ErrorKind.NOT_SUPPORTED,

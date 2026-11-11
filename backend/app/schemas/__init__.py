@@ -8,7 +8,14 @@ from app.schemas.music import (
     ServiceErrorRead,
     TrackRead,
 )
-from app.schemas.service import ServiceStatusRead
+from app.schemas.service import (
+    ConnectServiceRequest,
+    ServiceConnectionStatus,
+    ServiceStatusRead,
+    ToggleServiceRequest,
+    YouTubeDeviceCodeResponse,
+    YouTubePollTokenRequest,
+)
 from app.schemas.user import UserBase, UserCreate, UserRead
 
 __all__ = [
@@ -26,4 +33,9 @@ __all__ = [
     "ServiceErrorRead",
     "MusicSearchResponse",
     "ServiceStatusRead",
+    "ServiceConnectionStatus",
+    "ConnectServiceRequest",
+    "ToggleServiceRequest",
+    "YouTubeDeviceCodeResponse",
+    "YouTubePollTokenRequest",
 ]

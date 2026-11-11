@@ -28,6 +28,7 @@ SERVICE_CODE_MAP: dict[Service, str] = {
     Service.SPOTIFY: "SP",
     Service.SOUNDCLOUD: "SC",
     Service.YOUTUBE: "YT",
+    Service.VK: "VK",
 }
 
 SERVICE_NAME_MAP: dict[Service, str] = {
@@ -35,6 +36,7 @@ SERVICE_NAME_MAP: dict[Service, str] = {
     Service.SPOTIFY: "Spotify",
     Service.SOUNDCLOUD: "SoundCloud",
     Service.YOUTUBE: "YouTube",
+    Service.VK: "VK Музыка",
 }
 
 CODE_TO_SERVICE_MAP: dict[str, Service] = {
@@ -42,10 +44,13 @@ CODE_TO_SERVICE_MAP: dict[str, Service] = {
     "SP": Service.SPOTIFY,
     "SC": Service.SOUNDCLOUD,
     "YT": Service.YOUTUBE,
+    "VK": Service.VK,
     "yandex": Service.YANDEX,
     "spotify": Service.SPOTIFY,
     "soundcloud": Service.SOUNDCLOUD,
     "youtube": Service.YOUTUBE,
+    "vk": Service.VK,
+    "вк": Service.VK,
 }
 
 

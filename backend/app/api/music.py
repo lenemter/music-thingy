@@ -6,9 +6,13 @@ from typing import Annotated
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse, StreamingResponse
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import get_optional_current_user
+from app.api.deps import get_current_user, get_optional_current_user
 from app.config import settings
+from app.database import get_db
+from app.models.service_account import UserServiceAccount
 from app.models.user import User
 from app.schemas.music import (
     AlbumRead,
@@ -21,6 +25,7 @@ from app.schemas.music import (
 )
 from app.schemas.service import ServiceStatusRead
 from services.music.aggregator import aggregator
+from services.music.base import BaseMusicAdapter
 from services.music.dto import CODE_TO_SERVICE_MAP, SearchType, Service
 
 logger = logging.getLogger(__name__)
@@ -38,7 +43,7 @@ async def list_music_services() -> list[ServiceStatusRead]:
 @router.get("/search", response_model=MusicSearchResponse)
 async def search_music(
     q: str = Query(..., min_length=1, description="Search query string"),
-    services: str | None = Query(None, description="Comma-separated services: yandex,spotify,soundcloud,youtube"),
+    services: str | None = Query(None, description="Comma-separated services: yandex,youtube,vk,spotify,soundcloud"),
     types: str | None = Query("track,album", description="Comma-separated types: track,album,artist,playlist"),
     limit: int = Query(
         settings.DEFAULT_SEARCH_LIMIT,
@@ -47,9 +52,29 @@ async def search_music(
         description="Results limit per service",
     ),
     current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
+    db: AsyncSession = Depends(get_db),
 ) -> MusicSearchResponse:
     """Search for tracks, albums, artists, and playlists across enabled music services."""
     target_services: list[str] = []
+    user_adapters: dict[Service, BaseMusicAdapter] = {}
+
+    if current_user and current_user.id:
+        stmt = select(UserServiceAccount).where(UserServiceAccount.user_id == current_user.id)
+        res = await db.exec(stmt)
+        user_accounts = {acc.service.lower(): acc for acc in res.all()}
+
+        # Build custom user adapters
+        for srv_name, acc in user_accounts.items():
+            s_enum = CODE_TO_SERVICE_MAP.get(srv_name)
+            if s_enum and acc.is_active:
+                adapter = aggregator.create_user_adapter(s_enum, token=acc.token, extra_data=acc.extra_data)
+                if adapter:
+                    user_adapters[s_enum] = adapter
+
+        if not services and user_accounts:
+            # Filter default services to those active in user settings
+            target_services = [acc.service for acc in user_accounts.values() if acc.is_active]
+
     if services:
         target_services = [s.strip() for s in services.split(",") if s.strip()]
 
@@ -75,6 +100,7 @@ async def search_music(
         services=target_services or None,
         types=frozenset(search_types),
         limit_per_service=limit,
+        user_adapters=user_adapters or None,
     )
 
     tracks_out = [TrackRead(**t.to_frontend_dict()) for t in agg_result.tracks]
@@ -110,6 +136,64 @@ async def search_music(
         playlists=playlists_out,
         errors=errors_out,
     )
+
+
+@router.get("/me/playlists", response_model=list[PlaylistRead])
+async def get_my_playlists(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+) -> list[PlaylistRead]:
+    """Retrieve user's library playlists from all connected external services."""
+    stmt = select(UserServiceAccount).where(
+        UserServiceAccount.user_id == current_user.id,
+        UserServiceAccount.is_active == True,  # noqa: E712
+    )
+    res = await db.exec(stmt)
+    accounts = res.all()
+
+    all_playlists: list[PlaylistRead] = []
+    for acc in accounts:
+        pls = await aggregator.get_user_playlists(
+            service=acc.service,
+            token=acc.token,
+            extra_data=acc.extra_data,
+            account_id=acc.account_id,
+        )
+        for p in pls:
+            all_playlists.append(PlaylistRead(**p.to_frontend_dict()))
+
+    return all_playlists
+
+
+@router.get("/me/favorites", response_model=list[TrackRead])
+async def get_my_favorites(
+    current_user: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+) -> list[TrackRead]:
+    """Retrieve user's favorite / liked tracks from all connected external services."""
+    stmt = select(UserServiceAccount).where(
+        UserServiceAccount.user_id == current_user.id,
+        UserServiceAccount.is_active == True,  # noqa: E712
+    )
+    res = await db.exec(stmt)
+    accounts = res.all()
+
+    all_tracks: list[TrackRead] = []
+    for acc in accounts:
+        tracks = await aggregator.get_user_favorites(
+            service=acc.service,
+            token=acc.token,
+            extra_data=acc.extra_data,
+            account_id=acc.account_id,
+            limit=limit,
+        )
+        for t in tracks:
+            t_dict = t.to_frontend_dict()
+            t_dict["liked"] = True
+            all_tracks.append(TrackRead(**t_dict))
+
+    return all_tracks
 
 
 @router.get("/tracks/{service}/{service_id}", response_model=TrackRead)
@@ -148,6 +232,8 @@ async def get_playback_info(
             return PlaybackInfo(kind="spotify_sdk", ref=f"spotify:track:{service_id}")
         elif s_enum == Service.YANDEX:
             return PlaybackInfo(kind="yandex_iframe", ref=service_id)
+        elif s_enum == Service.VK:
+            return PlaybackInfo(kind="direct_url", ref=service_id)
 
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
