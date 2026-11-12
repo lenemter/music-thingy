@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Неофициальный адаптер YouTube Music: метаданные через ytmusicapi, аудио-ссылка через yt-dlp.
 
 Форматы service_id:
@@ -7,13 +9,14 @@
 
 Без авторизации работает поиск и публичные данные. Для приватных плейлистов и библиотеки нужен auth, он пробрасывается в конструктор.
 """
+import json
 import logging
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any, ClassVar, Literal
 
-from ytmusicapi import YTMusic
+from ytmusicapi import LikeStatus, YTMusic
 from ytmusicapi.exceptions import YTMusicError
 
 from .base import AdapterError, BaseMusicAdapter
@@ -324,3 +327,69 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
         items = [t for t in (data or {}).get("tracks") or [] if isinstance(t, dict)]
         tracks = tuple(d for i in items if (d := _to_track(i)))
         return _to_playlist(data, tracks=tracks, playlist_id=pid)
+
+    @classmethod
+    def create_from_credentials(
+        cls,
+        token: str | None = None,
+        extra_data: str | None = None,
+    ) -> BaseMusicAdapter | None:
+        if not token and not extra_data:
+            return None
+        try:
+            auth_val: Any = None
+            if token:
+                try:
+                    auth_val = json.loads(token)
+                except Exception:
+                    auth_val = token
+            elif extra_data:
+                try:
+                    auth_val = json.loads(extra_data)
+                except Exception:
+                    auth_val = extra_data
+            return cls(auth=auth_val)
+        except Exception as e:
+            log.warning("Failed to initialize user YouTube adapter: %s", e)
+            return None
+
+    def get_user_playlists(
+        self,
+        account_id: str | None = None,
+        limit: int = 50,
+    ) -> list[PlaylistDTO]:
+        with _translate_errors():
+            try:
+                items = self._yt.get_library_playlists(limit=limit) or []
+                return [p_dto for i in items if (p_dto := _to_playlist(i)) is not None]
+            except Exception as e:
+                log.warning("Failed to fetch YouTube playlists: %s", e)
+                return []
+
+    def get_user_favorites(
+        self,
+        account_id: str | None = None,
+        limit: int = 50,
+    ) -> list[TrackDTO]:
+        with _translate_errors():
+            try:
+                liked = self._yt.get_liked_songs(limit=limit) or {}
+                items = liked.get("tracks") or []
+                return [t_dto for i in items if (t_dto := _to_track(i)) is not None][:limit]
+            except Exception as e:
+                log.warning("Failed to fetch YouTube favorites: %s", e)
+                return []
+
+    def set_track_like(
+        self,
+        service_id: str,
+        liked: bool,
+    ) -> bool:
+        with _translate_errors():
+            try:
+                rating = LikeStatus.LIKE if liked else LikeStatus.INDIFFERENT
+                self._yt.rate_song(service_id, rating=rating)
+                return True
+            except Exception as e:
+                log.warning("Failed to sync YouTube like: %s", e)
+                return False
