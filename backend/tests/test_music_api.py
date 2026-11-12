@@ -450,3 +450,109 @@ def test_yandex_stream_signed_url_flow(client: TestClient):
     assert stream_resp.status_code == 307
     assert stream_resp.headers["location"] == "https://storage.yandex.net/music/stream_song.mp3"
 
+
+def test_like_and_unlike_track_flow(client: TestClient):
+    # 1. Register and login
+    email = "like_flow_user@example.com"
+    password = "SecurePassword123!"
+    client.post("/api/auth/register", json={"email": email, "password": password, "display_name": "Liker"})
+    token_resp = client.post("/api/auth/token", json={"email": email, "password": password})
+    token = token_resp.json()["access"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 2. Like track
+    put_resp = client.put(
+        "/api/music/tracks/yandex/55555/like",
+        json={"title": "Star Song", "artist": "Super Artist", "cover": "https://img.test/cover.jpg", "duration": 210},
+        headers=headers,
+    )
+    assert put_resp.status_code == 200
+    like_data = put_resp.json()
+    assert like_data["liked"] is True
+    assert like_data["title"] == "Star Song"
+    assert like_data["artist"] == "Super Artist"
+    assert like_data["service"] == "yandex"
+    assert like_data["service_id"] == "55555"
+
+    # 3. GET /api/music/me/liked returns this track
+    liked_resp = client.get("/api/music/me/liked", headers=headers)
+    assert liked_resp.status_code == 200
+    liked_list = liked_resp.json()
+    assert len(liked_list) >= 1
+    found = next((t for t in liked_list if t["service_id"] == "55555"), None)
+    assert found is not None
+    assert found["title"] == "Star Song"
+    assert found["liked"] is True
+
+    # 4. GET /api/music/tracks/yandex/55555 reflects liked=True
+    mock_track = TrackDTO(
+        service=Service.YANDEX,
+        service_id="55555",
+        title="Star Song",
+        artists=("Super Artist",),
+    )
+    with patch("app.api.music.aggregator.get_track", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_track
+        track_resp = client.get("/api/music/tracks/yandex/55555", headers=headers)
+    assert track_resp.status_code == 200
+    assert track_resp.json()["liked"] is True
+
+    # 5. Unlike track
+    del_resp = client.delete("/api/music/tracks/yandex/55555/like", headers=headers)
+    assert del_resp.status_code == 200
+    assert del_resp.json()["liked"] is False
+
+    # 6. GET /api/music/me/liked no longer has this track
+    liked_resp2 = client.get("/api/music/me/liked", headers=headers)
+    assert liked_resp2.status_code == 200
+    found2 = next((t for t in liked_resp2.json() if t["service_id"] == "55555"), None)
+    assert found2 is None
+
+
+def test_like_track_service_sync(client: TestClient):
+    email = "like_sync_user@example.com"
+    password = "SecurePassword123!"
+    client.post("/api/auth/register", json={"email": email, "password": password, "display_name": "Syncer"})
+    token_resp = client.post("/api/auth/token", json={"email": email, "password": password})
+    token = token_resp.json()["access"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Connect Yandex service
+    mock_ym_client = MagicMock()
+    mock_ym_client.me.account.full_name = "Yandex User"
+    mock_ym_client.me.account.login = "ym_login"
+    mock_ym_client.me.account.uid = 777777
+
+    with patch("yandex_music.Client") as mock_client_cls:
+        mock_client_cls.return_value.init.return_value = mock_ym_client
+        client.post(
+            "/api/services/yandex/connect",
+            json={"token": "valid_token", "account_name": "Yandex User"},
+            headers=headers,
+        )
+
+    # PUT like with mock sync
+    with patch("app.api.music.aggregator.set_track_like", new_callable=AsyncMock) as mock_sync:
+        mock_sync.return_value = True
+        resp = client.put(
+            "/api/music/tracks/yandex/77777/like",
+            json={"title": "Synced Song", "artist": "Synced Artist"},
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["liked"] is True
+        assert resp.json()["synced"] is True
+        mock_sync.assert_called_once()
+        assert mock_sync.call_args[1]["liked"] is True
+
+    # DELETE like with mock sync
+    with patch("app.api.music.aggregator.set_track_like", new_callable=AsyncMock) as mock_sync:
+        mock_sync.return_value = True
+        del_resp = client.delete("/api/music/tracks/yandex/77777/like", headers=headers)
+        assert del_resp.status_code == 200
+        assert del_resp.json()["liked"] is False
+        assert del_resp.json()["synced"] is True
+        mock_sync.assert_called_once()
+        assert mock_sync.call_args[1]["liked"] is False
+
+

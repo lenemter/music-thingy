@@ -281,6 +281,80 @@ class MusicAggregator:
 
         return []
 
+    async def set_track_like(
+        self,
+        service: Service | str,
+        service_id: str,
+        liked: bool,
+        token: str | None = None,
+        extra_data: str | None = None,
+        account_id: str | None = None,
+    ) -> bool:
+        """Sync like / unlike state with external service. Returns True if sync succeeded."""
+        adapter = self.create_user_adapter(service, token=token, extra_data=extra_data)
+        if not adapter:
+            return False
+
+        srv = adapter.service
+        if srv == Service.YANDEX and token:
+            def _sync_yandex() -> bool:
+                try:
+                    client = getattr(adapter, "_client", None)
+                    if not client:
+                        return False
+                    actual_id = service_id.split(":")[0]
+                    if liked:
+                        client.users_likes_tracks_add(track_ids=[actual_id])
+                    else:
+                        client.users_likes_tracks_remove(track_ids=[actual_id])
+                    return True
+                except Exception as e:
+                    log.warning("Failed to sync Yandex like: %s", e)
+                    return False
+            return await asyncio.to_thread(_sync_yandex)
+
+        elif srv == Service.YOUTUBE and (token or extra_data):
+            def _sync_youtube() -> bool:
+                try:
+                    yt = getattr(adapter, "_yt", None)
+                    if not yt:
+                        return False
+                    rating = "LIKE" if liked else "INDIFFERENT"
+                    yt.rate_song(service_id, rating=rating)
+                    return True
+                except Exception as e:
+                    log.warning("Failed to sync YouTube like: %s", e)
+                    return False
+            return await asyncio.to_thread(_sync_youtube)
+
+        elif srv == Service.VK and token:
+            def _sync_vk() -> bool:
+                try:
+                    from vkpymusic.vk_api import VkApiRequestBuilder, make_request
+                    vk_api = getattr(adapter, "_vk", None)
+                    if not vk_api:
+                        return False
+                    parts = service_id.split("_")
+                    if len(parts) < 2:
+                        return False
+                    owner_id = int(parts[0])
+                    audio_id = int(parts[1])
+                    method = "audio.add" if liked else "audio.delete"
+                    req = VkApiRequestBuilder.build_from_base_request(
+                        method="get",
+                        url=method,
+                        params={"audio_id": audio_id, "owner_id": owner_id},
+                    )
+                    vk_api.fill_user_agent_and_token(req)
+                    make_request(req)
+                    return True
+                except Exception as e:
+                    log.warning("Failed to sync VK like: %s", e)
+                    return False
+            return await asyncio.to_thread(_sync_vk)
+
+        return False
+
     async def search(
         self,
         query: str,
