@@ -7,12 +7,13 @@ import CloseIcon from "../shared/icons/close.svg?react";
 
 type QueuePanelProps = {
     player: PlayerControls
+    isClosing: boolean
     onClose: () => void
 }
 
 const VISIBLE_COUNT = 3;
 
-function QueuePanel({ player, onClose }: QueuePanelProps) {
+function QueuePanel({ player, isClosing, onClose }: QueuePanelProps) {
     const panelRef = useRef<HTMLElement>(null);
     const current = player.queue[player.index];
     const items = player.queue.map((track, index) => ({ track, index }));
@@ -65,7 +66,7 @@ function QueuePanel({ player, onClose }: QueuePanelProps) {
     }
 
     return (
-        <aside ref={panelRef} className="queue-panel" aria-label="Очередь">
+        <aside ref={panelRef} className={isClosing ? "queue-panel closing" : "queue-panel"} aria-label="Очередь">
             <div className="queue-header">
                 <div className="track-edit-heading">
                     <h2>Очередь</h2>

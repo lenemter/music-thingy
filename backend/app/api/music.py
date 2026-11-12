@@ -230,6 +230,7 @@ async def get_track(
     db: AsyncSession = Depends(get_db),
 ) -> TrackRead:
     """Retrieve full track metadata and playback parameters by service and service ID."""
+
     if service.lower() == "local":
         try:
             up_id = int(service_id)
@@ -305,6 +306,7 @@ async def get_playback_info(
     db: AsyncSession = Depends(get_db),
 ) -> PlaybackInfo:
     """Retrieve playback parameters (iframe ref, SDK ref, direct audio url) for a track."""
+
     if service.lower() == "local":
         try:
             up_id = int(service_id)
