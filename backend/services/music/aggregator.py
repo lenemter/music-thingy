@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
 from app.config import settings
 
@@ -35,6 +34,12 @@ class MusicAggregator:
     Supports dynamic adapter registration, user-scoped adapters with individual
     authorization credentials, and personal library retrieval (playlists, favorites).
     """
+
+    ADAPTER_CLASSES: ClassVar[dict[Service, type[BaseMusicAdapter]]] = {
+        Service.YANDEX: YandexMusicAdapter,
+        Service.YOUTUBE: YouTubeMusicAdapter,
+        Service.VK: VkMusicAdapter,
+    }
 
     def __init__(self) -> None:
         self._adapters: dict[Service, BaseMusicAdapter] = {}
@@ -113,48 +118,11 @@ class MusicAggregator:
         if not srv:
             return None
 
-        if srv == Service.YANDEX:
-            if token:
-                try:
-                    return YandexMusicAdapter(token=token)
-                except Exception as e:
-                    log.warning("Failed to initialize user Yandex adapter: %s", e)
-            return self.get_adapter(Service.YANDEX)
-
-        elif srv == Service.YOUTUBE:
-            if token or extra_data:
-                try:
-                    auth_val: Any = None
-                    if token:
-                        try:
-                            auth_val = json.loads(token)
-                        except Exception:
-                            auth_val = token
-                    elif extra_data:
-                        try:
-                            auth_val = json.loads(extra_data)
-                        except Exception:
-                            auth_val = extra_data
-                    return YouTubeMusicAdapter(auth=auth_val)
-                except Exception as e:
-                    log.warning("Failed to initialize user YouTube adapter: %s", e)
-            return self.get_adapter(Service.YOUTUBE)
-
-        elif srv == Service.VK:
-            if token:
-                ua = settings.VK_DEFAULT_USER_AGENT
-                if extra_data:
-                    try:
-                        parsed = json.loads(extra_data)
-                        if isinstance(parsed, dict) and "user_agent" in parsed:
-                            ua = parsed["user_agent"]
-                    except Exception:
-                        pass
-                try:
-                    return VkMusicAdapter(token=token, user_agent=ua)
-                except Exception as e:
-                    log.warning("Failed to initialize user VK adapter: %s", e)
-            return self.get_adapter(Service.VK)
+        adapter_cls = self.ADAPTER_CLASSES.get(srv)
+        if adapter_cls:
+            user_adapter = adapter_cls.create_from_credentials(token=token, extra_data=extra_data)
+            if user_adapter:
+                return user_adapter
 
         return self.get_adapter(srv)
 
@@ -164,58 +132,12 @@ class MusicAggregator:
         token: str | None = None,
         extra_data: str | None = None,
         account_id: str | None = None,
+        limit: int = 50,
     ) -> list[PlaylistDTO]:
         adapter = self.create_user_adapter(service, token=token, extra_data=extra_data)
         if not adapter:
             return []
-
-        srv = adapter.service
-        if srv == Service.YANDEX and token:
-            def _fetch_yandex_playlists():
-                from services.music.yandex import _to_playlist
-                try:
-                    client = getattr(adapter, "_client", None)
-                    if not client:
-                        return []
-                    pls = client.users_playlists_list() or []
-                    return [p_dto for p in pls if (p_dto := _to_playlist(p)) is not None]
-                except Exception as e:
-                    log.warning("Failed to fetch Yandex playlists: %s", e)
-                    return []
-            return await asyncio.to_thread(_fetch_yandex_playlists)
-
-        elif srv == Service.YOUTUBE and (token or extra_data):
-            def _fetch_youtube_playlists():
-                from services.music.youtube_music import _to_playlist
-                try:
-                    yt = getattr(adapter, "_yt", None)
-                    if not yt:
-                        return []
-                    items = yt.get_library_playlists(limit=50) or []
-                    return [p_dto for i in items if (p_dto := _to_playlist(i)) is not None]
-                except Exception as e:
-                    log.warning("Failed to fetch YouTube playlists: %s", e)
-                    return []
-            return await asyncio.to_thread(_fetch_youtube_playlists)
-
-        elif srv == Service.VK and token:
-            def _fetch_vk_playlists():
-                from services.music.vk import _to_playlist
-                try:
-                    vk_api = getattr(adapter, "_vk", None)
-                    if not vk_api:
-                        return []
-                    owner_id = int(account_id) if account_id and account_id.lstrip("-").isdigit() else None
-                    if not owner_id:
-                        return []
-                    batch = vk_api.get_playlists_by_userid(owner_id, count=50) or []
-                    return [p_dto for p in batch if (p_dto := _to_playlist(p)) is not None]
-                except Exception as e:
-                    log.warning("Failed to fetch VK playlists: %s", e)
-                    return []
-            return await asyncio.to_thread(_fetch_vk_playlists)
-
-        return []
+        return await asyncio.to_thread(adapter.get_user_playlists, account_id=account_id, limit=limit)
 
     async def get_user_favorites(
         self,
@@ -228,58 +150,7 @@ class MusicAggregator:
         adapter = self.create_user_adapter(service, token=token, extra_data=extra_data)
         if not adapter:
             return []
-
-        srv = adapter.service
-        if srv == Service.YANDEX and token:
-            def _fetch_yandex_favorites():
-                from services.music.yandex import _to_track
-                try:
-                    client = getattr(adapter, "_client", None)
-                    if not client:
-                        return []
-                    likes = client.users_likes_tracks()
-                    if not likes:
-                        return []
-                    tracks = likes.fetch_tracks() or []
-                    return [t_dto for t in tracks if (t_dto := _to_track(t)) is not None][:limit]
-                except Exception as e:
-                    log.warning("Failed to fetch Yandex favorites: %s", e)
-                    return []
-            return await asyncio.to_thread(_fetch_yandex_favorites)
-
-        elif srv == Service.YOUTUBE and (token or extra_data):
-            def _fetch_youtube_favorites():
-                from services.music.youtube_music import _to_track
-                try:
-                    yt = getattr(adapter, "_yt", None)
-                    if not yt:
-                        return []
-                    liked = yt.get_liked_songs(limit=limit) or {}
-                    items = liked.get("tracks") or []
-                    return [t_dto for i in items if (t_dto := _to_track(i)) is not None][:limit]
-                except Exception as e:
-                    log.warning("Failed to fetch YouTube favorites: %s", e)
-                    return []
-            return await asyncio.to_thread(_fetch_youtube_favorites)
-
-        elif srv == Service.VK and token:
-            def _fetch_vk_favorites():
-                from services.music.vk import _to_track
-                try:
-                    vk_api = getattr(adapter, "_vk", None)
-                    if not vk_api:
-                        return []
-                    owner_id = int(account_id) if account_id and account_id.lstrip("-").isdigit() else None
-                    if not owner_id:
-                        return []
-                    songs = vk_api.get_songs_by_userid(owner_id, count=limit) or []
-                    return [t_dto for s in songs if (t_dto := _to_track(s, with_url=True)) is not None]
-                except Exception as e:
-                    log.warning("Failed to fetch VK favorites: %s", e)
-                    return []
-            return await asyncio.to_thread(_fetch_vk_favorites)
-
-        return []
+        return await asyncio.to_thread(adapter.get_user_favorites, account_id=account_id, limit=limit)
 
     async def set_track_like(
         self,
@@ -294,66 +165,7 @@ class MusicAggregator:
         adapter = self.create_user_adapter(service, token=token, extra_data=extra_data)
         if not adapter:
             return False
-
-        srv = adapter.service
-        if srv == Service.YANDEX and token:
-            def _sync_yandex() -> bool:
-                try:
-                    client = getattr(adapter, "_client", None)
-                    if not client:
-                        return False
-                    actual_id = service_id.split(":")[0]
-                    if liked:
-                        client.users_likes_tracks_add(track_ids=[actual_id])
-                    else:
-                        client.users_likes_tracks_remove(track_ids=[actual_id])
-                    return True
-                except Exception as e:
-                    log.warning("Failed to sync Yandex like: %s", e)
-                    return False
-            return await asyncio.to_thread(_sync_yandex)
-
-        elif srv == Service.YOUTUBE and (token or extra_data):
-            def _sync_youtube() -> bool:
-                try:
-                    yt = getattr(adapter, "_yt", None)
-                    if not yt:
-                        return False
-                    rating = "LIKE" if liked else "INDIFFERENT"
-                    yt.rate_song(service_id, rating=rating)
-                    return True
-                except Exception as e:
-                    log.warning("Failed to sync YouTube like: %s", e)
-                    return False
-            return await asyncio.to_thread(_sync_youtube)
-
-        elif srv == Service.VK and token:
-            def _sync_vk() -> bool:
-                try:
-                    from vkpymusic.vk_api import VkApiRequestBuilder, make_request
-                    vk_api = getattr(adapter, "_vk", None)
-                    if not vk_api:
-                        return False
-                    parts = service_id.split("_")
-                    if len(parts) < 2:
-                        return False
-                    owner_id = int(parts[0])
-                    audio_id = int(parts[1])
-                    method = "audio.add" if liked else "audio.delete"
-                    req = VkApiRequestBuilder.build_from_base_request(
-                        method="get",
-                        url=method,
-                        params={"audio_id": audio_id, "owner_id": owner_id},
-                    )
-                    vk_api.fill_user_agent_and_token(req)
-                    make_request(req)
-                    return True
-                except Exception as e:
-                    log.warning("Failed to sync VK like: %s", e)
-                    return False
-            return await asyncio.to_thread(_sync_vk)
-
-        return False
+        return await asyncio.to_thread(adapter.set_track_like, service_id, liked)
 
     async def search(
         self,

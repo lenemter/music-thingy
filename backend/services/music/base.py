@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import ClassVar, Self
 from .dto import (
@@ -41,6 +43,39 @@ class BaseMusicAdapter(ABC):
 
     def get_album(self, service_id: str) -> AlbumDTO | None:
         return None
+
+    @classmethod
+    def create_from_credentials(
+        cls,
+        token: str | None = None,
+        extra_data: str | None = None,
+    ) -> BaseMusicAdapter | None:
+        """Create an adapter instance configured with user credentials."""
+        return None
+
+    def get_user_playlists(
+        self,
+        account_id: str | None = None,
+        limit: int = 50,
+    ) -> list[PlaylistDTO]:
+        """Fetch user's playlists for this service."""
+        return []
+
+    def get_user_favorites(
+        self,
+        account_id: str | None = None,
+        limit: int = 50,
+    ) -> list[TrackDTO]:
+        """Fetch user's liked/favorite tracks for this service."""
+        return []
+
+    def set_track_like(
+        self,
+        service_id: str,
+        liked: bool,
+    ) -> bool:
+        """Like or unlike a track in this service. Returns True if succeeded."""
+        return False
 
     def close(self) -> None: ...
     def __enter__(self) -> Self: return self

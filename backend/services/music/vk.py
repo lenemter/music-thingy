@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Неофициальный адаптер VK Музыки на базе библиотеки vkpymusic.
 
 Форматы service_id:
@@ -7,6 +9,7 @@
 
 Токен и user agent: vkpymusic.TokenReceiver (логин/пароль, SMS, captcha).
 """
+import json
 import logging
 import re
 import threading
@@ -322,3 +325,81 @@ class VkMusicAdapter(BaseMusicAdapter):
             external_url=f"{_WEB_URL}/music/playlist/{ref}",
             tracks=tracks,
         )
+
+    @classmethod
+    def create_from_credentials(
+        cls,
+        token: str | None = None,
+        extra_data: str | None = None,
+    ) -> BaseMusicAdapter | None:
+        if not token:
+            return None
+        from app.config import settings
+        ua = settings.VK_DEFAULT_USER_AGENT
+        if extra_data:
+            try:
+                parsed = json.loads(extra_data)
+                if isinstance(parsed, dict) and "user_agent" in parsed:
+                    ua = parsed["user_agent"]
+            except Exception:
+                pass
+        try:
+            return cls(token=token, user_agent=ua)
+        except Exception as e:
+            log.warning("Failed to initialize user VK adapter: %s", e)
+            return None
+
+    def get_user_playlists(
+        self,
+        account_id: str | None = None,
+        limit: int = 50,
+    ) -> list[PlaylistDTO]:
+        try:
+            owner_id = int(account_id) if account_id and account_id.lstrip("-").isdigit() else None
+            if not owner_id:
+                return []
+            batch = self._vk.get_playlists_by_userid(owner_id, count=limit) or []
+            return [p_dto for p in batch if (p_dto := _to_playlist(p)) is not None]
+        except Exception as e:
+            log.warning("Failed to fetch VK playlists: %s", e)
+            return []
+
+    def get_user_favorites(
+        self,
+        account_id: str | None = None,
+        limit: int = 50,
+    ) -> list[TrackDTO]:
+        try:
+            owner_id = int(account_id) if account_id and account_id.lstrip("-").isdigit() else None
+            if not owner_id:
+                return []
+            songs = self._vk.get_songs_by_userid(owner_id, count=limit) or []
+            return [t_dto for s in songs if (t_dto := _to_track(s, with_url=True)) is not None]
+        except Exception as e:
+            log.warning("Failed to fetch VK favorites: %s", e)
+            return []
+
+    def set_track_like(
+        self,
+        service_id: str,
+        liked: bool,
+    ) -> bool:
+        try:
+            from vkpymusic.vk_api import VkApiRequestBuilder, make_request
+            parts = service_id.split("_")
+            if len(parts) < 2:
+                return False
+            owner_id = int(parts[0])
+            audio_id = int(parts[1])
+            method = "audio.add" if liked else "audio.delete"
+            req = VkApiRequestBuilder.build_from_base_request(
+                method="get",
+                url=method,
+                params={"audio_id": audio_id, "owner_id": owner_id},
+            )
+            self._vk.fill_user_agent_and_token(req)
+            make_request(req)
+            return True
+        except Exception as e:
+            log.warning("Failed to sync VK like: %s", e)
+            return False
