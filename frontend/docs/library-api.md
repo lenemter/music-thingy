@@ -1,52 +1,59 @@
-# Медиатека — что ждёт фронтенд
+# Медиатека и лайки — как фронтенд работает с бэкендом
 
-Сейчас в бэкенде нет эндпоинтов для своей музыки, поэтому фронтенд хранит загруженные файлы, название, исполнителя
-и обложку в браузере (IndexedDB, база `signal-library`, отдельно для каждого пользователя по email).
-Минусы: музыка видна только в этом браузере и пропадёт при очистке данных сайта.
+## Свои загрузки — на сервере
 
-Чтобы перенести медиатеку на сервер, нужны эндпоинты (все с `Authorization: Bearer <access>`):
+Все запросы с `Authorization: Bearer <access>`.
 
-- `GET /api/uploads` — список `UserFileRead`
-- `POST /api/uploads` — `multipart/form-data`: `file`, `title`, `artist`
-- `DELETE /api/uploads/{id}`
-- `GET /api/uploads/{id}/stream` — аудио с поддержкой Range, без авторизации (для `<audio src>`)
-- `PATCH /api/uploads/{id}` — `{ "title": "...", "artist": "..." }`
-- `PUT /api/uploads/{id}/cover` — `multipart/form-data`, поле `file` (JPEG); `DELETE` — убрать обложку
+| Действие | Запрос |
+|---|---|
+| Список (новые первыми) | `GET /api/uploads` |
+| Загрузка | `POST /api/uploads` — `multipart/form-data`, поле `file`. Название, исполнителя и обложку из тегов сервер достаёт сам |
+| Название и исполнитель | `PATCH /api/uploads/{id}` — `{ "title": "...", "artist": "..." }` |
+| Шаблонная обложка | `PUT /api/uploads/{id}/cover` — JSON `{ "cover": "template:<номер>" }` |
+| Своя картинка | `PUT /api/uploads/{id}/cover` — `multipart/form-data`, поле `file`. Фронтенд уменьшает её до 600 px |
+| Убрать обложку | `DELETE /api/uploads/{id}/cover` |
+| Удаление | `DELETE /api/uploads/{id}` |
+| Аудио для плеера | `audio_url` из ответа: `/api/uploads/{id}/stream?sig=…`, подписанная ссылка на 7 дней, с поддержкой Range |
 
-```json
-{ "id": 12, "name": "Радиовышка", "artist": "Low Tower", "type": "MP3", "duration": 276, "size": 8.4,
-  "audio_url": "/api/uploads/12/stream", "cover_url": "/api/uploads/12/cover" }
-```
+Если у файла нет обложки, фронтенд показывает шаблонную из `src/shared/images/covers`. Какую именно — зависит от id, поэтому у одного файла она всегда одна и та же.
 
-Обложку из тегов (ID3 `APIC`, FLAC `pictures`, M4A `covr`, OGG `METADATA_BLOCK_PICTURE`) можно доставать через `mutagen`.
-Если её нет, фронтенд выбирает случайную обложку из `src/shared/images/covers`.
+Треки, восстановленные из истории или очереди, приходят без ссылки на аудио. Перед запуском плеер берёт свежую ссылку через `GET /api/uploads/{id}`.
 
-## Плейлисты
+## Лайки — на сервере
 
-В медиатеке три вида плейлистов:
+- `PUT /api/music/tracks/{service}/{id}/like` — тело `{ title, artist, cover, duration }`, чтобы сервер мог сразу сохранить данные трека.
+- `DELETE /api/music/tracks/{service}/{id}/like` — снять лайк.
+- `GET /api/music/me/liked?offset=&limit=` — «Понравившиеся»: лайки на сайте и лайки из подключённых сервисов одним списком. Фронтенд берёт до 5 страниц по 100.
 
-- **«Понравившиеся»**: собирается сам. В него попадают лайки, поставленные у нас, и лайки из подключённых сервисов (`GET /api/music/me/favorites`).
-  Если снять у нас лайк с трека, который лайкнут в сервисе, трек просто скрывается из списка. В самом сервисе лайк остаётся.
-- **Свои плейлисты**: пользователь создаёт, переименовывает и удаляет их сам и добавляет треки кнопкой «+».
-  Пока хранятся в `localStorage` (`signal-playlists:<email>`) как копии треков, поэтому видны только в этом браузере.
-- **Плейлисты из сервисов**: приходят из `GET /api/music/me/playlists`, треки подгружаются из `GET /api/music/playlists/{service}/{id}`
-  (с аккаунтом пользователя, чтобы открывались и закрытые). Последний список кэшируется, и когда сервис отключён, его плейлисты
-  показываются серыми с подписью «Недоступно · подключите …».
+Сердечко меняется сразу: фронтенд держит кэш списка (`signal-likes-cache:<email>`). Если сервер ответил ошибкой, сердечко возвращается обратно.
 
-Чтобы перенести свои плейлисты и лайки на сервер, нужны:
+Если снять лайк с трека, лайкнутого в сервисе, сервер пытается снять его и там. Если сервис не дал (`synced: false`), трек скрывается из «Понравившихся» в этом браузере (`signal-unliked:<email>`).
 
-- `GET /api/playlists`, `POST /api/playlists` `{ "name": "..." }`, `PATCH /api/playlists/{id}`, `DELETE /api/playlists/{id}`
-- `POST /api/playlists/{id}/tracks` `{ "service": "vk", "service_id": "..." }`, `DELETE /api/playlists/{id}/tracks/{service}/{service_id}`
-- `PUT` / `DELETE /api/music/tracks/{service}/{service_id}/like` — лайк у нас (и, по возможности, в самом сервисе)
+## Разовый перенос из браузера
+
+До появления этих эндпоинтов файлы лежали в IndexedDB `signal-library`, а лайки в `localStorage`. При входе фронтенд один раз:
+
+1. Загружает старые файлы на сервер и удаляет их из IndexedDB. Если файл загрузить не удалось, он остаётся в браузере до следующего входа.
+2. Меняет старые id файлов на новые в своих плейлистах, истории и очереди.
+3. Отправляет старые лайки на сервер.
+
+## Пока в браузере
+
+- **Свои плейлисты:** `signal-playlists:<email>`.
+- **История и запуски плейлистов:** `signal-history:<email>`, `signal-playlist-plays:<email>`.
+- **Очередь плеера:** `signal-player-session:<email>`.
+
+Для плейлистов нужны:
+- `GET`, `POST /api/playlists`;
+- `PATCH`, `DELETE /api/playlists/{id}`;
+- `POST /api/playlists/{id}/tracks` и `DELETE /api/playlists/{id}/tracks/{service}/{service_id}`.
 
 ## Где это на фронтенде
 
-- `src/shared/playlists.ts`, `src/shared/favorites.ts` — свои плейлисты и лайки
-- `src/shared/usePlaylists.ts` — собирает все плейлисты для медиатеки и меню слева
-- `src/entities/PlaylistCover.tsx` — обложка: коллаж из 4 обложек, сгенерированная, «недоступно», заглушка при загрузке
-- `src/widgets/PlaylistView.tsx`, `AddToPlaylistModal.tsx`, `PlaylistNameModal.tsx`
-
-- `src/shared/library.ts` — хранение файлов и правок (сейчас IndexedDB, потом — запросы к серверу)
-- `src/shared/audioTags.ts` — чтение тегов ID3 и FLAC в браузере
-- `src/widgets/TrackEditModal.tsx` — окно редактирования
-- `src/pages/LibraryPage.tsx` — страница «Медиатека»
+- `src/shared/api.ts` — запросы к `/api/uploads` и лайкам
+- `src/shared/library.ts` — свои загрузки и перенос из IndexedDB
+- `src/shared/favorites.ts` — лайки и их кэш
+- `src/shared/likesSync.ts` — загрузка «Понравившихся» с сервера и перенос старых лайков
+- `src/shared/useUploader.ts` — загрузка файлов
+- `src/shared/usePlaylists.ts` — собирает плейлисты для медиатеки, главной и меню слева
+- `src/widgets/TrackEditModal.tsx` — окно редактирования трека

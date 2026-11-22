@@ -1,8 +1,5 @@
 import { useState } from "react";
-import { readAudioTags, resizeImage } from "./audioTags.ts";
-import type { AudioTags } from "./audioTags.ts";
 import { uploadAudioFile } from "./library.ts";
-import { randomTemplate, templateKey } from "./coverTemplates.ts";
 import type { UserFile } from "./types.ts";
 
 export const AUDIO_ACCEPT = ".mp3,.wav,.flac,.ogg,.m4a,.aac,audio/*";
@@ -26,16 +23,9 @@ export function useUploader(files: UserFile[], onFilesChange: (files: UserFile[]
             const file = list[i];
             setStatus(list.length > 1 ? "Загружаем " + (i + 1) + " из " + list.length + "…" : "Загружаем «" + file.name + "»…");
 
-            let tags: AudioTags = {};
             try {
-                tags = await readAudioTags(file);
-            } catch {
-                tags = {};
-            }
-
-            try {
-                const cover = tags.cover ? await resizeImage(tags.cover) : templateKey(randomTemplate());
-                const uploaded = await uploadAudioFile(file, tags.title, tags.artist, cover);
+                // Название, исполнителя и обложку из тегов сервер достаёт сам
+                const uploaded = await uploadAudioFile(file);
                 current = [uploaded, ...current];
                 onFilesChange(current);
             } catch (err) {

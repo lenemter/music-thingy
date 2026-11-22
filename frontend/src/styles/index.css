@@ -1015,6 +1015,13 @@ body {
   color: var(--accent);
 }
 
+.player-badge-icon {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  padding: 0 4px;
+}
+
 .player-center {
   position: relative;
   min-width: 0;
@@ -1043,6 +1050,9 @@ body {
 }
 
 .progress-row {
+  position: relative;
+  /* фиксированная высота — в режиме обрезки плеер не меняет размер */
+  height: 18px;
   width: 100%;
   max-width: 600px;
   display: flex;
@@ -1271,18 +1281,18 @@ body {
 }
 
 .auth-field input.invalid {
-  border-color: var(--orange);
+  border-color: var(--red);
 }
 
 .auth-error,
 .section p.auth-error {
   margin: 0;
   padding: 10px 14px;
-  border: 1px solid rgba(240, 127, 42, .4);
+  border: 1px solid rgba(224, 65, 47, .45);
   border-radius: 14px;
-  background-color: rgba(240, 127, 42, .1);
+  background-color: rgba(224, 65, 47, .12);
   font-size: 14px;
-  color: var(--orange);
+  color: var(--red);
 }
 
 .auth-submit.button.accent {
@@ -1372,7 +1382,7 @@ body {
 }
 
 .search-note.error {
-  color: var(--orange);
+  color: var(--red);
 }
 
 .modal-overlay {
@@ -1618,10 +1628,18 @@ body {
   }
 }
 
+/* На жёлтом плеере красный текст не читается — ошибка идёт красной плашкой со светлым текстом */
 .player-error {
   display: flex;
+  align-self: flex-start;
+  max-width: 100%;
+  box-sizing: border-box;
   gap: 8px;
   margin-top: 2px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background-color: var(--red);
+  color: var(--white);
   font-family: 'IBMPlexMono-Medium', monospace;
   font-size: 11px;
   line-height: 1.6;
@@ -1632,7 +1650,7 @@ body {
 
 .player-error a {
   flex: none;
-  color: var(--black);
+  color: var(--white);
   text-decoration: underline;
 }
 
@@ -2054,7 +2072,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   padding-top: 20px;
   border-top: 1px solid var(--border);
@@ -3202,4 +3220,296 @@ body {
 
 .icon-button.mode-hidden {
   visibility: hidden;
+}
+
+/* ===== Обрезка трека в плеере ===== */
+
+.trim-toggle.active {
+  opacity: 1;
+}
+
+
+/* Время у полоски — фиксированной ширины, чтобы полоска не меняла длину, когда меняются цифры или включается обрезка */
+.progress-time {
+  flex: none;
+  width: 52px;
+  display: flex;
+  justify-content: center;
+  text-align: center;
+}
+
+
+
+/* Два ползунка друг на друге: дорожка общая, хватаются только ручки */
+/* Общая дорожка для обычного режима и обрезки */
+.progress-track {
+  position: relative;
+  flex-grow: 1;
+  min-width: 80px;
+  /* та же высота, что у обычной полоски — ручки выступают за неё, высота плеера не меняется */
+  height: 14px;
+}
+
+.progress-rail,
+.progress-fill {
+  position: absolute;
+  top: 50%;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.progress-rail {
+  left: 0;
+  right: 0;
+  background-color: rgba(18, 19, 15, .22);
+}
+
+.progress-fill {
+  background-color: var(--black);
+}
+
+/* Кружок позиции. Центр встроенного кружка ползунка ходит от 7px до (ширина − 7px) — повторяем это,
+   чтобы видимый кружок совпадал с тем, за который хватаются */
+.progress-thumb {
+  --pos: 0;
+  position: absolute;
+  top: 50%;
+  left: calc(7px + (100% - 14px) * var(--pos));
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background-color: var(--black);
+  pointer-events: none;
+  transition: transform .15s;
+}
+
+.progress-thumb.disabled {
+  opacity: .5;
+}
+
+.progress-track:hover .progress-thumb:not(.disabled) {
+  transform: scale(1.2);
+}
+
+/* Заливка и кружок перетекают между режимами только при их смене */
+.progress-track.animating .progress-fill {
+  transition: left .3s cubic-bezier(.4, 0, .2, 1), width .3s cubic-bezier(.4, 0, .2, 1);
+}
+
+.progress-track.animating .progress-thumb {
+  transition: left .3s cubic-bezier(.4, 0, .2, 1), transform .15s;
+}
+
+/* Встроенные кружки ползунков прозрачные: видимый — общий .progress-thumb */
+.progress-track .progress-input::-webkit-slider-thumb,
+.progress-track .trim-position::-webkit-slider-thumb {
+  opacity: 0;
+}
+
+.progress-track .progress-input::-moz-range-thumb,
+.progress-track .trim-position::-moz-range-thumb {
+  opacity: 0;
+}
+
+/* Ползунок обычной полоски лежит поверх общей дорожки: своя дорожка у него прозрачная */
+.progress-track .progress-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.progress-track .progress-input::-webkit-slider-runnable-track {
+  background: transparent;
+}
+
+.progress-track .progress-input::-moz-range-track {
+  background: transparent;
+}
+
+.trim-range {
+  position: absolute;
+  inset: 0;
+}
+
+
+.trim-range input {
+  /* над слоем выбранного куска */
+  z-index: 1;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+}
+
+.trim-range input.trim-position {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.trim-range input::-webkit-slider-runnable-track {
+  height: 100%;
+  background: transparent;
+}
+
+.trim-range input::-moz-range-track {
+  background: transparent;
+}
+
+/* Ручка по рефу: тёмная капсула 12×24 со скруглением 5 и жёлтой чертой 2×12 по центру */
+.trim-range input.trim-handle::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 24px;
+  margin-top: -5px;
+  border: 0;
+  border-radius: 5px;
+  background: linear-gradient(var(--accent), var(--accent)) center / 2px 12px no-repeat, var(--black);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.trim-range input.trim-handle::-moz-range-thumb {
+  width: 12px;
+  height: 24px;
+  border: 0;
+  border-radius: 5px;
+  background: linear-gradient(var(--accent), var(--accent)) center / 2px 12px no-repeat, var(--black);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.trim-range input.trim-handle:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--black);
+  outline-offset: 2px;
+}
+
+.trim-button {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  border: 2px solid var(--black);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--black);
+  cursor: pointer;
+  transition: transform .2s;
+}
+
+.trim-button:hover {
+  transform: scale(1.08);
+}
+
+.trim-button.confirm {
+  background-color: var(--black);
+  color: var(--accent);
+}
+
+/* Кружок текущей позиции — как ползунок обычной полоски, но под ручками обрезки */
+/* Точка текущей позиции — обычный кружок, как у полоски проигрывания */
+.trim-range input.trim-position::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--black);
+  cursor: pointer;
+  transition: transform .15s;
+}
+
+.trim-range input.trim-position:hover::-webkit-slider-thumb {
+  transform: scale(1.2);
+}
+
+.trim-range input.trim-position::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--black);
+  cursor: pointer;
+}
+
+.trim-actions {
+  white-space: nowrap;
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 10px);
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'IBMPlexMono-Medium', monospace;
+  font-size: 12px;
+}
+
+/* На узком плеере справа не хватает места под кнопки обрезки — на время обрезки прячем громкость,
+   кнопки справа сдвигаются к краю и освобождают место */
+@media (max-width: 1300px) {
+  .player.trimming .player-right .volume-input,
+  .player.trimming .player-right .volume-toggle {
+    display: none;
+  }
+}
+
+/* Появление и скрытие элементов обрезки.
+   Появление — анимацией, скрытие — плавным переходом к прозрачности: класс closing выключает анимацию
+   появления, поэтому она не проигрывается заново, а элементы гаснут, а не пропадают резко. */
+.trim-range input.trim-handle {
+  animation: trim-handle-in .2s ease-out;
+  transition: opacity .18s ease-in, transform .18s ease-in;
+}
+
+.trim-range.closing input.trim-handle {
+  animation: none;
+  opacity: 0;
+  transform: scaleY(.3);
+}
+
+.trim-actions {
+  animation: trim-actions-in .2s ease-out;
+  transition: opacity .18s ease-in, transform .18s ease-in;
+}
+
+.trim-actions.closing {
+  animation: none;
+  opacity: 0;
+  transform: translate(-10px, -50%);
+  pointer-events: none;
+}
+
+@keyframes trim-handle-in {
+  from {
+    opacity: 0;
+    transform: scaleY(.3);
+  }
+}
+
+@keyframes trim-actions-in {
+  from {
+    opacity: 0;
+    transform: translate(-10px, -50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-track.animating .progress-thumb,
+  .progress-track.animating .progress-fill,
+  .trim-range input.trim-handle,
+  .trim-actions {
+    animation: none;
+    transition: none;
+  }
 }

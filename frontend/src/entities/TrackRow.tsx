@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Cover from "./Cover.tsx";
 import { formatTime } from "../shared/format.ts";
+import { playedDuration } from "../shared/player/trims.ts";
 import type { Service, Track } from "../shared/types.ts";
 import { getServiceName } from "../shared/music/services.ts";
 import { setTrackLiked } from "../shared/favorites.ts";
@@ -68,7 +69,7 @@ function TrackRow({ track, number, isPlaying, services, onPlay, onRemove, onUnav
                 ))}
             </span>
 
-            <span className="mono track-time">{formatTime(track.duration)}</span>
+            <span className="mono track-time">{formatTime(playedDuration(track, track.duration))}</span>
 
             <button
                 className="icon-button"

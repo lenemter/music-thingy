@@ -6,7 +6,6 @@ import { coverTemplates, fallbackCover } from "../shared/coverTemplates.ts";
 import type { UserFile } from "../shared/types.ts";
 import CloseIcon from "../shared/icons/close.svg?react";
 import UploadIcon from "../shared/icons/upload.svg?react";
-import EditorIcon from "../shared/icons/editor.svg?react";
 
 type TrackEditModalProps = {
     file: UserFile
@@ -185,10 +184,6 @@ function TrackEditModal({ file, onSaved, onClose }: TrackEditModalProps) {
                 {error && <p className="auth-error">{error}</p>}
 
                 <div className="track-edit-footer">
-                    <a className="track-edit-effects" href="#" title="Редактор скоро появится" onClick={(event) => event.preventDefault()}>
-                        <EditorIcon width={16} height={16}/>
-                        ОБРЕЗКА И ЭФФЕКТЫ →
-                    </a>
                     <div className="track-edit-actions">
                         <button type="button" className="button outline-light track-edit-button" onClick={closeModal}>
                             Отмена

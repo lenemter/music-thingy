@@ -1,11 +1,9 @@
 import Logo from "../entities/logo.tsx";
 import PlaylistCover from "../entities/PlaylistCover.tsx";
 import type { Service } from "../shared/types.ts";
-import { showToast } from "../shared/toast.ts";
 import type { LibraryPlaylist } from "../shared/usePlaylists.ts";
 import HomeIcon from "../shared/icons/home.svg?react";
 import LibraryIcon from "../shared/icons/library.svg?react";
-import EditorIcon from "../shared/icons/editor.svg?react";
 import PlusIcon from "../shared/icons/plus.svg?react";
 
 type NavbarProps = {
@@ -41,7 +39,6 @@ function Navbar({ playlists, activePlaylistId, onOpenPlaylist, onCreatePlaylist,
                 >
                     <LibraryIcon/>Медиатека
                 </a>
-                <a className="nav-link" href="#" onClick={(event) => { event.preventDefault(); showToast("Раздел в разработке"); }}><EditorIcon/>Редактор</a>
             </div>
 
             <div className="nav-group nav-group-playlists">

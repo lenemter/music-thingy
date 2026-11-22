@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Track } from "../types.ts";
 import { createEngine, resolveSource } from "./source.ts";
+import { getTrim } from "./trims.ts";
+import type { Trim } from "./trims.ts";
 import type { EngineEvents, PlayerEngine } from "./types.ts";
 
 // Повтор: выключен или повтор текущего трека, когда он закончится
@@ -8,6 +10,10 @@ export type RepeatMode = "off" | "one"
 
 // Сколько треков держать впереди в бесконечной очереди
 const UPCOMING_COUNT = 3;
+
+// Плавное нарастание и затухание громкости на границах обрезки
+const TRIM_FADE_SECONDS = 1.5;
+const FADE_TICK_MS = 50;
 
 function shuffleTracks(tracks: Track[]) {
     const result = [...tracks];
@@ -63,6 +69,26 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
     const extendRef = useRef<((count: number) => Track[]) | null>(null);
     // Порядок очереди до перемешивания — чтобы вернуть его, когда перемешивание выключат
     const originalOrderRef = useRef<Track[]>(initialQueue);
+    // Обрезка, которую сейчас редактируют в плеере (undefined — не редактируют, null — без обрезки).
+    // Пока она задана, плеер слушается её, а не сохранённой.
+    const trimPreviewRef = useRef<Trim | null | undefined>(undefined);
+    // Пока тянут ручку обрезки, позицию воспроизведения не трогаем
+    const trimHoldRef = useRef(false);
+
+    function effectiveTrim(track: Track | undefined): Trim | null {
+        return trimPreviewRef.current !== undefined ? trimPreviewRef.current : getTrim(track);
+    }
+
+    // Последнее известное время трека и когда оно пришло — по ним каждые 50 мс оцениваем позицию для затухания
+    const lastTimeRef = useRef({ time: 0, stamp: 0, total: 0 });
+    const fadeTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+
+    function seekEngine(seconds: number) {
+        lastTimeRef.current = { ...lastTimeRef.current, time: seconds, stamp: performance.now() };
+        pendingSeekRef.current = { target: seconds, until: Date.now() + 1500 };
+        engineRef.current?.seek(seconds);
+        setCurrentTime(seconds);
+    }
 
     function withUpcoming(list: Track[], trackIndex: number) {
         const extend = extendRef.current;
@@ -94,6 +120,43 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
         setExternalUrl(undefined);
         setIsLoading(true);
 
+        // Обрезанный трек заканчивается на конце обрезки; флаг — чтобы не сработать дважды подряд
+        let trimEndFired = false;
+        let isEnginePlaying = false;
+        let appliedVolume = -1;
+
+        // Громкость на обрезанных краях: нарастает от начала куска и затихает к его концу.
+        // Края, которые не обрезаны (начало трека, конец трека), не трогаем.
+        clearInterval(fadeTimerRef.current);
+        lastTimeRef.current = { time: 0, stamp: performance.now(), total: track.duration };
+        fadeTimerRef.current = setInterval(() => {
+            const engine = engineRef.current;
+            if (!isActual()) {
+                return;
+            }
+            if (!engine) {
+                return;
+            }
+            let factor = 1;
+            const trim = effectiveTrim(track);
+            const last = lastTimeRef.current;
+            if (trim && isEnginePlaying && !trimHoldRef.current) {
+                const now = last.time + (performance.now() - last.stamp) / 1000;
+                const fade = Math.min(TRIM_FADE_SECONDS, (trim.end - trim.start) / 4);
+                if (trim.start > 0.05) {
+                    factor = Math.min(factor, Math.max(0, Math.min(1, (now - trim.start) / fade)));
+                }
+                if (last.total > 0 && trim.end < last.total - 0.05) {
+                    factor = Math.min(factor, Math.max(0, Math.min(1, (trim.end - now) / fade)));
+                }
+            }
+            const volume = volumeRef.current * factor;
+            if (Math.abs(volume - appliedVolume) > 0.003) {
+                appliedVolume = volume;
+                engine.setVolume(volume);
+            }
+        }, FADE_TICK_MS);
+
         const events: EngineEvents = {
             onTime: (time, total) => {
                 if (isActual()) {
@@ -102,14 +165,40 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
                         return;
                     }
                     pendingSeekRef.current = null;
+                    lastTimeRef.current = { time, stamp: performance.now(), total: total > 0 ? total : lastTimeRef.current.total };
                     setCurrentTime(time);
                     if (total > 0) {
                         setDuration(total);
+                    }
+                    const trim = effectiveTrim(track);
+                    if (!trim || trimHoldRef.current) {
+                        trimEndFired = false;
+                    } else if (time >= trim.end) {
+                        if (!trimEndFired) {
+                            trimEndFired = true;
+                            if (trimPreviewRef.current !== undefined) {
+                                // Во время обрезки кусок играет по кругу, чтобы его можно было послушать
+                                seekEngine(trim.start);
+                            } else {
+                                // Конец куска = конец трека: останавливаем звук и возвращаемся к началу куска,
+                                // иначе без следующего трека звук продолжил бы играть в отрезанной части
+                                engineRef.current?.pause();
+                                seekEngine(trim.start);
+                                endedRef.current();
+                            }
+                        }
+                    } else if (time < trim.start - 0.5) {
+                        // Каким-то образом оказались в отрезанном начале — переходим к началу куска
+                        seekEngine(trim.start);
+                    } else {
+                        trimEndFired = false;
                     }
                 }
             },
             onPlayingChange: (playing) => {
                 if (isActual()) {
+                    isEnginePlaying = playing;
+                    lastTimeRef.current = { ...lastTimeRef.current, stamp: performance.now() };
                     setIsPlaying(playing);
                     setIsLoading(false);
                 }
@@ -151,6 +240,16 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
             }
 
             setIsLoading(false);
+            const trim = effectiveTrim(track);
+            if (trim && trim.start > 0) {
+                pendingSeekRef.current = { target: trim.start, until: Date.now() + 1500 };
+                lastTimeRef.current = { ...lastTimeRef.current, time: trim.start, stamp: performance.now() };
+                engine.seek(trim.start);
+                setCurrentTime(trim.start);
+                // начало обрезано — стартуем с тишины, дальше громкость нарастает
+                engine.setVolume(0);
+                appliedVolume = 0;
+            }
             engine.play();
         } catch (err) {
             if (isActual()) {
@@ -206,10 +305,21 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
         }
     }
 
+    // Перемотка не заходит в отрезанные части трека
     function seek(seconds: number) {
-        pendingSeekRef.current = { target: seconds, until: Date.now() + 1500 };
-        engineRef.current?.seek(seconds);
-        setCurrentTime(seconds);
+        const trim = effectiveTrim(currentTrack);
+        const target = trim ? Math.min(Math.max(seconds, trim.start), Math.max(trim.start, trim.end - 0.5)) : seconds;
+        seekEngine(target);
+    }
+
+    function setTrimPreview(trim: Trim | null | undefined) {
+        trimPreviewRef.current = trim;
+    }
+
+    // Пока ручку тянут, позицию не трогаем. Когда отпустили и позиция оказалась в отрезанной зоне,
+    // ближайшее обновление времени переведёт её к началу куска (см. onTime)
+    function setTrimHold(isHeld: boolean) {
+        trimHoldRef.current = isHeld;
     }
 
     function next() {
@@ -219,19 +329,24 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
         }
     }
 
+    // Начало трека с учётом обрезки
+    function trackStart() {
+        return effectiveTrim(currentTrack)?.start ?? 0;
+    }
+
     function prev() {
-        if (currentTime > 3 || queue.length < 2) {
-            seek(0);
+        if (currentTime > trackStart() + 3 || queue.length < 2) {
+            seek(trackStart());
         } else if (index > 0) {
             startTrack(queue, index - 1);
         } else {
-            seek(0);
+            seek(trackStart());
         }
     }
 
     function handleEnded() {
         if (repeat === "one") {
-            seek(0);
+            seek(trackStart());
             engineRef.current?.play();
             return;
         }
@@ -343,7 +458,10 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
     }, [isPlaying]);
 
     useEffect(() => {
-        return () => engineRef.current?.destroy();
+        return () => {
+            clearInterval(fadeTimerRef.current);
+            engineRef.current?.destroy();
+        };
     }, []);
 
     return {
@@ -362,6 +480,8 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
         index,
         isEndless: extendRef.current !== null,
         setExtend,
+        setTrimPreview,
+        setTrimHold,
         playAt,
         removeAt,
         clearUpcoming,

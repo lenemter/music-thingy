@@ -23,9 +23,9 @@ type PlaylistViewProps = {
 }
 
 const kindLabels = {
-    liked: "СОБИРАЕТСЯ САМ",
+    liked: "АВТО ПЛЕЙЛИСТ",
     user: "ВАШ ПЛЕЙЛИСТ",
-    service: "ИЗ СЕРВИСА",
+    service: "ПЛЕЙЛИСТ ИЗ СЕРВИСА",
 };
 
 // Треки, с которых сняли лайк, остаются на своих местах, пока пользователь не выйдет из плейлиста.
@@ -104,7 +104,7 @@ function PlaylistView(props: PlaylistViewProps) {
                     <PlaylistCover key={playlist.id} playlist={playlist} size="card"/>
                 </div>
                 <div className="playlist-hero-info">
-                    <span className="label">ПЛЕЙЛИСТ · {kindLabels[playlist.kind]}</span>
+                    <span className="label">{kindLabels[playlist.kind]}</span>
                     <h1 className="library-title">{playlist.name}</h1>
                     <span className="mono">{playlist.unavailable ? playlist.subtitle : meta.join(" · ")}</span>
                     <div className="playlist-actions">

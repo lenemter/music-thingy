@@ -18,6 +18,7 @@ import LikeButton from "../entities/LikeButton.tsx";
 import { plural, trackCount } from "../shared/format.ts";
 import { openAddToPlaylist } from "../shared/playlists.ts";
 import { trackFromFile } from "../shared/music/convert.ts";
+import { playedDuration } from "../shared/player/trims.ts";
 import type { LibraryPlaylist } from "../shared/usePlaylists.ts";
 import type { Track } from "../shared/types.ts";
 import PlusIcon from "../shared/icons/plus.svg?react";
@@ -67,7 +68,7 @@ function LibraryPage(props: LibraryPageProps) {
     async function handleDelete(file: UserFile) {
         const isConfirmed = await confirmAction({
             title: "Удалить «" + file.name + "»?",
-            text: "Файл и его правки удалятся из этого браузера навсегда. Восстановить не получится.",
+            text: "Файл и его правки удалятся навсегда. Восстановить не получится.",
             confirmText: "Удалить",
             danger: true,
             icon: "delete",
@@ -218,7 +219,7 @@ function LibraryPage(props: LibraryPageProps) {
                                     <span className="track-artist">{file.artist}</span>
                                 </span>
                                 <span className="tags"><span className="tag">{file.type}</span></span>
-                                <span className="mono track-time">{formatTime(file.duration)}</span>
+                                <span className="mono track-time">{formatTime(playedDuration(trackFromFile(file), file.duration))}</span>
                                 <span className="mono library-size">{file.size} МБ</span>
                                 <button
                                     className="icon-button"

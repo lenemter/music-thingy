@@ -107,7 +107,7 @@ function ServiceLink({ service, deviceCode, onLinked, onRestart, onCancel }: Ser
 
     return (
         <div className="source-form">
-            <span className="label">ПРИВЯЗКА · {service.name.toUpperCase()}</span>
+            <span className="label">{service.name.toUpperCase()}</span>
 
             {deviceCode && !isFinished && (
                 <>

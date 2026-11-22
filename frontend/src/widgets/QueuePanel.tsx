@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import Cover from "../entities/Cover.tsx";
 import Equalizer from "../entities/Equalizer.tsx";
 import { formatTime, trackCount } from "../shared/format.ts";
+import { playedDuration } from "../shared/player/trims.ts";
 import type { PlayerControls } from "../shared/player/usePlayer.ts";
 import CloseIcon from "../shared/icons/close.svg?react";
 
@@ -54,7 +55,7 @@ function QueuePanel({ player, isClosing, onClose }: QueuePanelProps) {
                         <span className="track-title">{track.title}</span>
                         <span className="track-artist">{track.artist}</span>
                     </span>
-                    <span className="mono track-time">{formatTime(track.duration)}</span>
+                    <span className="mono track-time">{formatTime(playedDuration(track, track.duration))}</span>
                 </button>
                 {!isCurrent && (
                     <button className="icon-button file-delete" title="Убрать из очереди" onClick={() => player.removeAt(index)}>

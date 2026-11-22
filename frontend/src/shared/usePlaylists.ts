@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchFavorites, fetchMyPlaylists } from "./api.ts";
-import { getLikedTracks, getTrackKey, isLikeHidden, subscribeLikes } from "./favorites.ts";
+import { fetchMyPlaylists } from "./api.ts";
+import { syncLikes } from "./likesSync.ts";
+import { getLikedTracks, getTrackKey, subscribeLikes } from "./favorites.ts";
 import { getUserPlaylists, subscribePlaylists } from "./playlists.ts";
 import { getHistory, getPlaylistPlays, subscribeHistory } from "./history.ts";
 import { seededShuffle } from "./waveStream.ts";
-import { trackFromFile, trackFromRead } from "./music/convert.ts";
+import { trackFromFile } from "./music/convert.ts";
 import { getServiceName } from "./music/services.ts";
 import { coverUrl } from "./coverTemplates.ts";
 import { plural, trackCount } from "./format.ts";
-import type { PlaylistRead, ServiceId, TrackRead } from "./music/types.ts";
+import type { PlaylistRead, ServiceId } from "./music/types.ts";
 import type { Service, Track, User, UserFile } from "./types.ts";
 
 export const LIKED_PLAYLIST_ID = "liked";
@@ -30,7 +31,6 @@ export type LibraryPlaylist = {
 }
 
 const PLAYLISTS_CACHE = "signal-service-playlists";
-const FAVORITES_CACHE = "signal-service-favorites";
 
 function readCache<T>(name: string, email: string | undefined): T[] {
     if (!email) {
@@ -109,7 +109,6 @@ export function usePlaylists(user: User | null, services: Service[], files: User
     const email = user?.email;
     const [version, setVersion] = useState(0);
     const [servicePlaylists, setServicePlaylists] = useState<PlaylistRead[]>(() => readCache(PLAYLISTS_CACHE, email));
-    const [serviceFavorites, setServiceFavorites] = useState<TrackRead[]>(() => readCache(FAVORITES_CACHE, email));
     const [isLoading, setIsLoading] = useState(false);
     const online = services.filter((service) => service.online).map((service) => service.id);
     const onlineKey = online.join(",");
@@ -130,9 +129,15 @@ export function usePlaylists(user: User | null, services: Service[], files: User
 
     useEffect(() => {
         setServicePlaylists(readCache(PLAYLISTS_CACHE, email));
-        setServiceFavorites(readCache(FAVORITES_CACHE, email));
         setVersion((value) => value + 1);
     }, [email]);
+
+    // Лайки подтягиваются всегда (на сайте их можно ставить и без сервисов) и заново — когда меняется набор сервисов
+    useEffect(() => {
+        if (email) {
+            syncLikes();
+        }
+    }, [email, onlineKey]);
 
     useEffect(() => {
         if (!email || onlineKey === "") {
@@ -144,7 +149,7 @@ export function usePlaylists(user: User | null, services: Service[], files: User
         const onlineIds = onlineKey.split(",");
         setIsLoading(true);
 
-        Promise.allSettled([fetchMyPlaylists(), fetchFavorites()]).then(([playlistsResult, favoritesResult]) => {
+        Promise.allSettled([fetchMyPlaylists()]).then(([playlistsResult]) => {
             if (isCancelled) {
                 return;
             }
@@ -153,11 +158,6 @@ export function usePlaylists(user: User | null, services: Service[], files: User
                     .map((item) => ({ ...item, tracks: null }));
                 writeCache(PLAYLISTS_CACHE, email, merged);
                 setServicePlaylists(merged);
-            }
-            if (favoritesResult.status === "fulfilled") {
-                const merged = mergeWithCache(favoritesResult.value, readCache<TrackRead>(FAVORITES_CACHE, email), onlineIds);
-                writeCache(FAVORITES_CACHE, email, merged);
-                setServiceFavorites(merged);
             }
             setIsLoading(false);
         });
@@ -171,17 +171,6 @@ export function usePlaylists(user: User | null, services: Service[], files: User
         const result: LibraryPlaylist[] = [];
 
         const liked = resolveTracks(getLikedTracks(), files, offline).map((track) => ({ ...track, liked: true }));
-        const likedKeys = new Set(liked.map(getTrackKey));
-        for (const item of serviceFavorites) {
-            const track = trackFromRead(item);
-            if (offline.includes(item.service)) {
-                track.unavailable = getServiceName(item.service);
-            }
-            if (!likedKeys.has(getTrackKey(track)) && !isLikeHidden(item.service, item.service_id)) {
-                likedKeys.add(getTrackKey(track));
-                liked.push({ ...track, liked: true });
-            }
-        }
         result.push({
             id: LIKED_PLAYLIST_ID,
             kind: "liked",
@@ -199,7 +188,7 @@ export function usePlaylists(user: User | null, services: Service[], files: User
                 id: "user:" + playlist.id,
                 kind: "user",
                 name: playlist.name,
-                subtitle: tracks.length > 0 ? "Ваш плейлист · " + describeTracks(tracks) : "Ваш плейлист · пока пусто",
+                subtitle: tracks.length > 0 ? "Ваш плейлист " + describeTracks(tracks) : "Ваш плейлист пока пустой",
                 tracks: tracks,
                 tracksCount: tracks.length,
                 duration: sumDuration(tracks),
@@ -233,7 +222,7 @@ export function usePlaylists(user: User | null, services: Service[], files: User
         return result;
         // version меняется, когда меняются лайки или свои плейлисты в localStorage
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [version, files, servicePlaylists, serviceFavorites, onlineKey, offlineKey]);
+    }, [version, files, servicePlaylists, onlineKey, offlineKey]);
 
     const recentTracks = useMemo(
         () => resolveTracks(getHistory(), files, offline).slice(0, RECENT_COUNT),

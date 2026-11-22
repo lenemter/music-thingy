@@ -307,3 +307,87 @@ export async function fetchServicePlaylist(service: string, serviceId: string): 
 export async function fetchFavorites(): Promise<TrackRead[]> {
     return requestJson("/api/music/me/favorites?limit=100");
 }
+
+// ================= UPLOADS =================
+
+export type UserFileRead = {
+    id: number
+    name: string
+    artist: string
+    type: string
+    duration: number
+    size: number
+    audio_url: string
+    cover_url: string | null
+    cover: string | null
+    is_edited: boolean
+    created_at: string
+}
+
+export async function fetchUploadList(): Promise<UserFileRead[]> {
+    return requestJson("/api/uploads");
+}
+
+export async function fetchUpload(id: number): Promise<UserFileRead> {
+    return requestJson(`/api/uploads/${id}`);
+}
+
+export async function createUpload(file: Blob, fileName: string, extra: { title?: string, artist?: string, cover?: Blob | string } = {}): Promise<UserFileRead> {
+    const form = new FormData();
+    form.append("file", file, fileName);
+    if (extra.title) form.append("title", extra.title);
+    if (extra.artist) form.append("artist", extra.artist);
+    if (extra.cover instanceof Blob) form.append("cover", extra.cover, "cover.jpg");
+    else if (extra.cover) form.append("cover", extra.cover);
+    return requestJson("/api/uploads", { method: "POST", body: form });
+}
+
+export async function updateUpload(id: number, info: { title?: string, artist?: string }): Promise<UserFileRead> {
+    return requestJson(`/api/uploads/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(info),
+    });
+}
+
+export async function setUploadCoverTemplate(id: number, template: string): Promise<UserFileRead> {
+    return requestJson(`/api/uploads/${id}/cover`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cover: template }),
+    });
+}
+
+export async function setUploadCoverImage(id: number, image: Blob): Promise<UserFileRead> {
+    const form = new FormData();
+    form.append("file", image, image.type === "image/png" ? "cover.png" : "cover.jpg");
+    return requestJson(`/api/uploads/${id}/cover`, { method: "PUT", body: form });
+}
+
+export async function removeUploadCover(id: number): Promise<UserFileRead> {
+    return requestJson(`/api/uploads/${id}/cover`, { method: "DELETE" });
+}
+
+export async function removeUpload(id: number): Promise<void> {
+    await requestJson(`/api/uploads/${id}`, { method: "DELETE" });
+}
+
+// ================= LIKES =================
+
+export type LikeResult = TrackRead & { synced: boolean }
+
+export async function fetchLikedPage(offset: number, limit: number): Promise<TrackRead[]> {
+    return requestJson(`/api/music/me/liked?offset=${offset}&limit=${limit}`);
+}
+
+export async function likeTrack(service: string, serviceId: string, info: { title?: string, artist?: string, cover?: string, duration?: number }): Promise<LikeResult> {
+    return requestJson(`/api/music/tracks/${service}/${encodeURIComponent(serviceId)}/like`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(info),
+    });
+}
+
+export async function unlikeTrack(service: string, serviceId: string): Promise<LikeResult> {
+    return requestJson(`/api/music/tracks/${service}/${encodeURIComponent(serviceId)}/like`, { method: "DELETE" });
+}
