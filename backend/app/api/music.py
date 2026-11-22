@@ -17,12 +17,15 @@ from app.core.streaming import (
     verify_service_stream_signature,
 )
 from app.database import get_db
+from app.models.like import UserLike
 from app.models.service_account import UserServiceAccount
 from app.models.upload import UserUpload
 from app.models.user import User
 from app.schemas.music import (
     AlbumRead,
     ArtistRead,
+    LikeRequest,
+    LikeResponse,
     MusicSearchResponse,
     PlaybackInfo,
     PlaylistRead,
@@ -32,11 +35,25 @@ from app.schemas.music import (
 from app.schemas.service import ServiceStatusRead
 from services.music.aggregator import aggregator
 from services.music.base import BaseMusicAdapter
-from services.music.dto import CODE_TO_SERVICE_MAP, SearchType, Service
+from services.music.dto import (
+    CODE_TO_SERVICE_MAP,
+    SERVICE_CODE_MAP,
+    SearchType,
+    Service,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/music", tags=["music"])
+
+
+async def _get_user_liked_keys(db: AsyncSession, user_id: int | None) -> set[tuple[str, str]]:
+    """Return set of (service_lowercase, service_id) liked by user in local database."""
+    if not user_id:
+        return set()
+    stmt = select(UserLike.service, UserLike.service_id).where(UserLike.user_id == user_id)
+    res = await db.exec(stmt)
+    return {(s.lower(), sid) for s, sid in res.all()}
 
 
 async def get_user_adapter(
@@ -129,7 +146,14 @@ async def search_music(
         user_adapters=user_adapters or None,
     )
 
-    tracks_out = [TrackRead(**t.to_frontend_dict()) for t in agg_result.tracks]
+    liked_keys = await _get_user_liked_keys(db, current_user.id if current_user else None)
+
+    tracks_out: list[TrackRead] = []
+    for track_item in agg_result.tracks:
+        t_dict = track_item.to_frontend_dict()
+        if (t_dict.get("service", "").lower(), str(t_dict.get("service_id", ""))) in liked_keys:
+            t_dict["liked"] = True
+        tracks_out.append(TrackRead(**t_dict))
     albums_out = [AlbumRead(**alb.to_frontend_dict()) for alb in agg_result.albums]
     artists_out = [
         ArtistRead(
@@ -222,6 +246,301 @@ async def get_my_favorites(
     return all_tracks
 
 
+@router.get("/me/liked", response_model=list[TrackRead])
+async def get_my_liked(
+    current_user: Annotated[User, Depends(get_current_user)],
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+) -> list[TrackRead]:
+    """Retrieve unified list of liked tracks: local site likes + connected services favorites, without duplicates."""
+    stmt = (
+        select(UserLike)
+        .where(UserLike.user_id == current_user.id)
+        .order_by(UserLike.created_at.desc())  # type: ignore[attr-defined]
+    )
+    res = await db.exec(stmt)
+    local_likes = res.all()
+
+    seen_keys: set[str] = set()
+    merged_tracks: list[TrackRead] = []
+
+    for like in local_likes:
+        key = f"{like.service.lower()}:{like.service_id}"
+        seen_keys.add(key)
+        numeric_id = abs(hash(key)) % 10_000_000 + 1
+        srv = like.service.lower()
+        source_code = "ФАЙЛ" if srv == "local" else SERVICE_CODE_MAP.get(CODE_TO_SERVICE_MAP.get(srv, Service.YANDEX), srv.upper()[:2])
+
+        stream_url = (
+            f"/api/music/tracks/{srv}/{like.service_id}/stream"
+            if srv == "yandex"
+            else (f"/api/uploads/{like.service_id}/stream" if srv == "local" else None)
+        )
+        if stream_url and srv == "yandex" and current_user.id:
+            sig = create_service_stream_signature(srv, like.service_id, current_user.id)
+            stream_url = f"{stream_url}?u={current_user.id}&sig={sig}"
+        elif stream_url and srv == "local" and current_user.id:
+            try:
+                sig = create_stream_signature(int(like.service_id), current_user.id)
+                stream_url = f"{stream_url}?sig={sig}"
+            except ValueError:
+                pass
+
+        merged_tracks.append(
+            TrackRead(
+                id=numeric_id,
+                track_key=key,
+                service=like.service,
+                service_id=like.service_id,
+                title=like.title,
+                artist=like.artist,
+                artists=[like.artist] if like.artist else [],
+                cover=like.cover or "",
+                artwork_url=like.cover,
+                duration=like.duration,
+                duration_ms=like.duration * 1000,
+                sources=[source_code],
+                source=source_code,
+                is_playable=True,
+                liked=True,
+                direct_audio_url=stream_url,
+                stream_url=stream_url,
+                playback=PlaybackInfo(
+                    kind="direct_url",
+                    ref=stream_url or "",
+                    direct_audio_url=stream_url,
+                ) if stream_url else None,
+            )
+        )
+
+    stmt_acc = select(UserServiceAccount).where(
+        UserServiceAccount.user_id == current_user.id,
+        UserServiceAccount.is_active == True,  # noqa: E712
+    )
+    res_acc = await db.exec(stmt_acc)
+    accounts = res_acc.all()
+
+    for acc in accounts:
+        try:
+            tracks = await aggregator.get_user_favorites(
+                service=acc.service,
+                token=acc.token,
+                extra_data=acc.extra_data,
+                account_id=acc.account_id,
+                limit=limit + offset,
+            )
+            for t in tracks:
+                key = f"{t.service.value.lower()}:{t.service_id}"
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    t_dict = t.to_frontend_dict()
+                    t_dict["liked"] = True
+                    merged_tracks.append(TrackRead(**t_dict))
+        except Exception as e:
+            logger.warning("Error fetching favorites from service %s: %s", acc.service, e)
+
+    return merged_tracks[offset : offset + limit]
+
+
+@router.put("/tracks/{service}/{service_id}/like", response_model=LikeResponse)
+async def like_track(
+    service: str,
+    service_id: str,
+    body: LikeRequest | None = None,
+    current_user: Annotated[User, Depends(get_current_user)] = None,  # type: ignore[assignment]
+    db: AsyncSession = Depends(get_db),
+) -> LikeResponse:
+    """Like a track: saves to user's favorites in database and syncs with external service if connected."""
+    srv = service.lower()
+
+    stmt = select(UserLike).where(
+        UserLike.user_id == current_user.id,
+        UserLike.service == srv,
+        UserLike.service_id == service_id,
+    )
+    res = await db.exec(stmt)
+    existing = res.first()
+
+    title = body.title if body and body.title else None
+    artist = body.artist if body and body.artist else None
+    cover = body.cover if body and body.cover else None
+    duration = (body.duration if body and body.duration else 0) or 0
+
+    if not existing:
+        if srv == "local":
+            try:
+                up_id = int(service_id)
+                upload = await db.get(UserUpload, up_id)
+                if upload:
+                    title = title or upload.title
+                    artist = artist or upload.artist
+                    cover = cover or (upload.cover_template if upload.cover_template else (f"/api/uploads/{upload.id}/cover" if upload.cover_file else None))
+                    duration = duration or upload.duration_seconds
+            except ValueError:
+                pass
+        else:
+            if not title or not artist:
+                try:
+                    user_adapter = await get_user_adapter(db, current_user, srv)
+                    t_dto = await aggregator.get_track(srv, service_id, adapter=user_adapter)
+                    if t_dto:
+                        title = title or t_dto.title
+                        artist = artist or t_dto.artist_display
+                        cover = cover or (str(t_dto.artwork_url) if t_dto.artwork_url else None)
+                        duration = duration or t_dto.duration_seconds
+                except Exception as e:
+                    logger.warning("Could not fetch metadata for liked track %s:%s: %s", srv, service_id, e)
+
+        title = title or f"Track {service_id}"
+        artist = artist or "Неизвестный исполнитель"
+
+        like_entry = UserLike(
+            user_id=current_user.id,
+            service=srv,
+            service_id=service_id,
+            title=title,
+            artist=artist,
+            cover=cover,
+            duration=duration,
+        )
+        db.add(like_entry)
+        await db.commit()
+    else:
+        title = existing.title
+        artist = existing.artist
+        cover = existing.cover
+        duration = existing.duration
+
+    synced = True
+    if srv != "local":
+        synced = False
+        s_enum = CODE_TO_SERVICE_MAP.get(srv)
+        if s_enum:
+            stmt_acc = select(UserServiceAccount).where(
+                UserServiceAccount.user_id == current_user.id,
+                UserServiceAccount.service == s_enum.value,
+                UserServiceAccount.is_active == True,  # noqa: E712
+            )
+            res_acc = await db.exec(stmt_acc)
+            acc = res_acc.first()
+            if acc and (acc.token or acc.extra_data):
+                synced = await aggregator.set_track_like(
+                    service=s_enum,
+                    service_id=service_id,
+                    liked=True,
+                    token=acc.token,
+                    extra_data=acc.extra_data,
+                    account_id=acc.account_id,
+                )
+
+    source_code = "ФАЙЛ" if srv == "local" else SERVICE_CODE_MAP.get(CODE_TO_SERVICE_MAP.get(srv, Service.YANDEX), srv.upper()[:2])
+    numeric_id = abs(hash(f"{srv}:{service_id}")) % 10_000_000 + 1
+    stream_url = f"/api/music/tracks/{srv}/{service_id}/stream" if srv == "yandex" else (f"/api/uploads/{service_id}/stream" if srv == "local" else None)
+    if stream_url and srv == "yandex" and current_user.id:
+        sig = create_service_stream_signature(srv, service_id, current_user.id)
+        stream_url = f"{stream_url}?u={current_user.id}&sig={sig}"
+    elif stream_url and srv == "local" and current_user.id:
+        try:
+            sig = create_stream_signature(int(service_id), current_user.id)
+            stream_url = f"{stream_url}?sig={sig}"
+        except ValueError:
+            pass
+
+    return LikeResponse(
+        id=numeric_id,
+        track_key=f"{srv}:{service_id}",
+        service=srv,
+        service_id=service_id,
+        title=title,
+        artist=artist,
+        artists=[artist] if artist else [],
+        cover=cover or "",
+        artwork_url=cover,
+        duration=duration,
+        duration_ms=duration * 1000,
+        sources=[source_code],
+        source=source_code,
+        is_playable=True,
+        liked=True,
+        synced=synced,
+        direct_audio_url=stream_url,
+        stream_url=stream_url,
+    )
+
+
+@router.delete("/tracks/{service}/{service_id}/like", response_model=LikeResponse)
+async def unlike_track(
+    service: str,
+    service_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+) -> LikeResponse:
+    """Unlike a track: removes from user's favorites in database and syncs with external service if connected."""
+    srv = service.lower()
+
+    stmt = select(UserLike).where(
+        UserLike.user_id == current_user.id,
+        UserLike.service == srv,
+        UserLike.service_id == service_id,
+    )
+    res = await db.exec(stmt)
+    existing = res.first()
+
+    title = existing.title if existing else f"Track {service_id}"
+    artist = existing.artist if existing else ""
+    cover = existing.cover if existing else None
+    duration = existing.duration if existing else 0
+
+    if existing:
+        await db.delete(existing)
+        await db.commit()
+
+    synced = True
+    if srv != "local":
+        synced = False
+        s_enum = CODE_TO_SERVICE_MAP.get(srv)
+        if s_enum:
+            stmt_acc = select(UserServiceAccount).where(
+                UserServiceAccount.user_id == current_user.id,
+                UserServiceAccount.service == s_enum.value,
+                UserServiceAccount.is_active == True,  # noqa: E712
+            )
+            res_acc = await db.exec(stmt_acc)
+            acc = res_acc.first()
+            if acc and (acc.token or acc.extra_data):
+                synced = await aggregator.set_track_like(
+                    service=s_enum,
+                    service_id=service_id,
+                    liked=False,
+                    token=acc.token,
+                    extra_data=acc.extra_data,
+                    account_id=acc.account_id,
+                )
+
+    source_code = "ФАЙЛ" if srv == "local" else SERVICE_CODE_MAP.get(CODE_TO_SERVICE_MAP.get(srv, Service.YANDEX), srv.upper()[:2])
+    numeric_id = abs(hash(f"{srv}:{service_id}")) % 10_000_000 + 1
+
+    return LikeResponse(
+        id=numeric_id,
+        track_key=f"{srv}:{service_id}",
+        service=srv,
+        service_id=service_id,
+        title=title,
+        artist=artist,
+        artists=[artist] if artist else [],
+        cover=cover or "",
+        artwork_url=cover,
+        duration=duration,
+        duration_ms=duration * 1000,
+        sources=[source_code],
+        source=source_code,
+        is_playable=True,
+        liked=False,
+        synced=synced,
+    )
+
+
 @router.get("/tracks/{service}/{service_id}", response_model=TrackRead)
 async def get_track(
     service: str,
@@ -250,6 +569,8 @@ async def get_track(
         cover_val = upload.cover_template if upload.cover_template else (
             f"/api/uploads/{upload.id}/cover" if upload.cover_file else None
         )
+        liked_keys = await _get_user_liked_keys(db, current_user.id if current_user else None)
+        is_liked = ("local", str(upload.id)) in liked_keys
         return TrackRead(
             id=upload.id or 0,
             track_key=f"local:{upload.id}",
@@ -265,7 +586,7 @@ async def get_track(
             sources=["ФАЙЛ"],
             source="ФАЙЛ",
             is_playable=True,
-            liked=False,
+            liked=is_liked,
             direct_audio_url=stream_url,
             stream_url=stream_url,
             playback=PlaybackInfo(
@@ -284,6 +605,9 @@ async def get_track(
         )
 
     t_dict = track_dto.to_frontend_dict()
+    liked_keys = await _get_user_liked_keys(db, current_user.id if current_user else None)
+    if (track_dto.service.value.lower(), track_dto.service_id) in liked_keys:
+        t_dict["liked"] = True
     if track_dto.direct_audio_url and track_dto.service == Service.YANDEX:
         # Yandex CDN blocks browser origins (CORS 403 Forbidden). Route through stream proxy.
         stream_url = f"/api/music/tracks/{track_dto.service.value}/{track_dto.service_id}/stream"
@@ -451,7 +775,12 @@ async def stream_track_audio(
 
 
 @router.get("/albums/{service}/{service_id}", response_model=AlbumRead)
-async def get_album(service: str, service_id: str) -> AlbumRead:
+async def get_album(
+    service: str,
+    service_id: str,
+    current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
+    db: AsyncSession = Depends(get_db),
+) -> AlbumRead:
     """Retrieve album details and tracklist by service and album ID."""
     alb_dto = await aggregator.get_album(service, service_id)
     if not alb_dto:
@@ -459,7 +788,13 @@ async def get_album(service: str, service_id: str) -> AlbumRead:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Album '{service_id}' on service '{service}' not found",
         )
-    return AlbumRead(**alb_dto.to_frontend_dict())
+    a_dict = alb_dto.to_frontend_dict()
+    liked_keys = await _get_user_liked_keys(db, current_user.id if current_user else None)
+    if a_dict.get("tracks") and liked_keys:
+        for tr in a_dict["tracks"]:
+            if (tr.get("service", "").lower(), str(tr.get("service_id", ""))) in liked_keys:
+                tr["liked"] = True
+    return AlbumRead(**a_dict)
 
 
 @router.get("/artists/{service}/{service_id}", response_model=ArtistRead)
@@ -497,4 +832,10 @@ async def get_playlist(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Playlist '{service_id}' on service '{service}' not found",
         )
-    return PlaylistRead(**pl_dto.to_frontend_dict())
+    p_dict = pl_dto.to_frontend_dict()
+    liked_keys = await _get_user_liked_keys(db, current_user.id if current_user else None)
+    if p_dict.get("tracks") and liked_keys:
+        for tr in p_dict["tracks"]:
+            if (tr.get("service", "").lower(), str(tr.get("service_id", ""))) in liked_keys:
+                tr["liked"] = True
+    return PlaylistRead(**p_dict)

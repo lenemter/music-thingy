@@ -311,3 +311,63 @@ class YandexMusicAdapter(BaseMusicAdapter):
 
         tracks = tuple(d for t in full_tracks if (d := _to_track(t)))
         return _to_playlist(playlist, tracks=tracks)
+
+    @classmethod
+    def create_from_credentials(
+        cls,
+        token: str | None = None,
+        extra_data: str | None = None,
+    ) -> BaseMusicAdapter | None:
+        if not token:
+            return None
+        try:
+            return cls(token=token)
+        except Exception as e:
+            log.warning("Failed to initialize user Yandex adapter: %s", e)
+            return None
+
+    def get_user_playlists(
+        self,
+        account_id: str | None = None,
+        limit: int = 50,
+    ) -> list[PlaylistDTO]:
+        with _translate_errors():
+            try:
+                pls = self._client.users_playlists_list() or []
+                return [p_dto for p in pls if (p_dto := _to_playlist(p)) is not None][:limit]
+            except Exception as e:
+                log.warning("Failed to fetch Yandex playlists: %s", e)
+                return []
+
+    def get_user_favorites(
+        self,
+        account_id: str | None = None,
+        limit: int = 50,
+    ) -> list[TrackDTO]:
+        with _translate_errors():
+            try:
+                likes = self._client.users_likes_tracks()
+                if not likes:
+                    return []
+                tracks = likes.fetch_tracks() or []
+                return [t_dto for t in tracks if (t_dto := _to_track(t)) is not None][:limit]
+            except Exception as e:
+                log.warning("Failed to fetch Yandex favorites: %s", e)
+                return []
+
+    def set_track_like(
+        self,
+        service_id: str,
+        liked: bool,
+    ) -> bool:
+        with _translate_errors():
+            try:
+                actual_id = service_id.split(":")[0]
+                if liked:
+                    self._client.users_likes_tracks_add(track_ids=[actual_id])
+                else:
+                    self._client.users_likes_tracks_remove(track_ids=[actual_id])
+                return True
+            except Exception as e:
+                log.warning("Failed to sync Yandex like: %s", e)
+                return False

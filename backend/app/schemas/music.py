@@ -34,6 +34,17 @@ class TrackRead(BaseModel):
     external_url: str | None = None
 
 
+class LikeRequest(BaseModel):
+    title: str | None = None
+    artist: str | None = None
+    cover: str | None = None
+    duration: int | None = None
+
+
+class LikeResponse(TrackRead):
+    synced: bool = True
+
+
 class AlbumRead(BaseModel):
     id: int
     service: str

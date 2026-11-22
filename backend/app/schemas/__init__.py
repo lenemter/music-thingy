@@ -2,6 +2,8 @@ from app.schemas.auth import LoginRequest, RefreshTokenRequest, Token
 from app.schemas.music import (
     AlbumRead,
     ArtistRead,
+    LikeRequest,
+    LikeResponse,
     MusicSearchResponse,
     PlaybackInfo,
     PlaylistRead,
@@ -28,6 +30,8 @@ __all__ = [
     "UserRead",
     "PlaybackInfo",
     "TrackRead",
+    "LikeRequest",
+    "LikeResponse",
     "AlbumRead",
     "ArtistRead",
     "PlaylistRead",
