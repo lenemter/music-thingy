@@ -31,7 +31,7 @@ def test_cover_url():
     mock_cover = MagicMock()
     mock_cover.uri = "https://cdn.example.com/%%"
     entity.cover = mock_cover
-    assert _cover_url(entity) == "https://cdn.example.com/400x400"
+    assert _cover_url(entity) == "https://cdn.example.com/1000x1000"
 
     entity.cover = None
     entity.og_image = None
