@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import mutagen
+from mutagen import MutagenError
 from mutagen.flac import Picture
 
 logger = logging.getLogger(__name__)
@@ -33,7 +35,7 @@ def extract_audio_metadata(file_path: Path | str) -> AudioMetadata:
 
         # Duration
         if hasattr(audio, "info") and audio.info and hasattr(audio.info, "length"):
-            meta.duration_seconds = max(0, int(round(audio.info.length)))
+            meta.duration_seconds = max(0, round(audio.info.length))
 
         tags: Any = getattr(audio, "tags", None)
 
@@ -89,15 +91,13 @@ def extract_audio_metadata(file_path: Path | str) -> AudioMetadata:
         if not meta.cover_bytes and tags and hasattr(tags, "get"):
             mbp = tags.get("metadata_block_picture")
             if mbp:
-                try:
+                with contextlib.suppress(MutagenError, ValueError, TypeError, OSError):
                     raw_data = base64.b64decode(mbp[0])
                     pic = Picture(raw_data)
                     meta.cover_bytes = pic.data
                     meta.cover_mime = pic.mime or "image/jpeg"
-                except Exception:
-                    pass
 
-    except Exception as e:
+    except (MutagenError, OSError, ValueError, TypeError) as e:
         logger.warning("Could not extract metadata from %s: %s", path_str, e)
 
     return meta

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 import time
@@ -130,10 +131,8 @@ class YouTubeDataApi:
                 continue
             if resp.status_code != 200:
                 reason = ""
-                try:
+                with contextlib.suppress(ValueError, KeyError, IndexError, TypeError):
                     reason = resp.json()["error"]["errors"][0]["reason"]
-                except Exception:
-                    pass
                 raise YouTubeDataApiError(f"YouTube Data API: HTTP {resp.status_code} {reason}".strip())
             return resp.json()
         raise YouTubeDataApiError("YouTube Data API: доступ не обновился")

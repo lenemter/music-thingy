@@ -1,4 +1,3 @@
-from unittest.mock import MagicMock
 import pytest
 
 from services.music.aggregator import MusicAggregator
@@ -6,9 +5,6 @@ from services.music.base import BaseMusicAdapter
 from services.music.dto import (
     AlbumDTO,
     ArtistDTO,
-    ErrorKind,
-    PlaybackDTO,
-    PlaybackKind,
     PlaylistDTO,
     SearchResultDTO,
     SearchType,

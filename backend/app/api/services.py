@@ -5,9 +5,9 @@ import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from starlette.concurrency import run_in_threadpool
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
+from starlette.concurrency import run_in_threadpool
 from ytmusicapi import YTMusic
 from ytmusicapi.auth.oauth import OAuthCredentials
 
@@ -55,7 +55,7 @@ async def list_services() -> list[ServiceStatusRead]:
 @router.get("/connections", response_model=list[ServiceConnectionStatus])
 async def get_user_connections(
     current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[ServiceConnectionStatus]:
     """Returns account connection and activation status for each service for the current user."""
     stmt = select(UserServiceAccount).where(UserServiceAccount.user_id == current_user.id)
@@ -90,7 +90,7 @@ async def connect_service(
     service: str,
     req: ConnectServiceRequest,
     current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ServiceConnectionStatus:
     """Connect a user account to a music service (Yandex, YouTube, or VK)."""
     s_enum = CODE_TO_SERVICE_MAP.get(service.lower())
@@ -120,7 +120,7 @@ async def connect_service(
                 account_id = str(ym_client.me.account.uid) if ym_client.me.account.uid else None
             else:
                 account_name = "Яндекс Музыка"
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning("Yandex token validation failed: %s", e)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -140,7 +140,7 @@ async def connect_service(
         if auth_payload:
             try:
                 parsed_auth = json.loads(auth_payload)
-            except Exception:
+            except (ValueError, TypeError):
                 parsed_auth = auth_payload
 
         try:
@@ -150,7 +150,7 @@ async def connect_service(
                 raise ValueError("YouTube не вернул данные аккаунта — заголовки устарели или вход не выполнен")
             account_name = str(info.get("accountName"))
             saved_token = json.dumps(parsed_auth) if isinstance(parsed_auth, dict) else str(parsed_auth)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning("YouTube auth validation failed: %s", e)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -172,7 +172,7 @@ async def connect_service(
             # Quick validation
             vk_api.get_songs_by_id(["1_1"])
             account_name = "VK Музыка"
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             # Check if error is access/auth related
             from vkpymusic.vk_api import VkApiException
             if isinstance(e, VkApiException) and e.error_code in (5, 17):
@@ -232,7 +232,7 @@ async def connect_service(
 async def disconnect_service(
     service: str,
     current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ServiceConnectionStatus:
     """Disconnect and remove credentials for a linked music service."""
     s_enum = CODE_TO_SERVICE_MAP.get(service.lower())
@@ -271,7 +271,7 @@ async def toggle_service(
     service: str,
     req: ToggleServiceRequest,
     current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ServiceConnectionStatus:
     """Enable or disable a service source for search and recommendations."""
     s_enum = CODE_TO_SERVICE_MAP.get(service.lower())
@@ -340,7 +340,7 @@ async def get_youtube_device_code(
             expires_in=code_data["expires_in"],
             interval=code_data["interval"],
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning("Failed to obtain YouTube device code: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -352,7 +352,7 @@ async def get_youtube_device_code(
 async def poll_youtube_token(
     req: YouTubePollTokenRequest,
     current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Polls Google for tokens after user enters code on verification_url and saves to user account."""
     cid = req.client_id or settings.YOUTUBE_CLIENT_ID
@@ -366,7 +366,7 @@ async def poll_youtube_token(
     creds = OAuthCredentials(client_id=cid, client_secret=csec)
     try:
         token_data = creds.token_from_code(req.device_code)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         msg = str(e)
         if "authorization_pending" in msg:
             return {"status": "pending", "message": "Ожидание подтверждения пользователем"}
@@ -426,7 +426,7 @@ async def get_yandex_device_code(
 
     try:
         code = await run_in_threadpool(Client().request_device_code)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning("Failed to obtain Yandex device code: %s", e)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -446,7 +446,7 @@ async def get_yandex_device_code(
 async def poll_yandex_token(
     req: YandexPollTokenRequest,
     current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Polls Yandex for the token after the user confirms the code, then saves it to the user account."""
     from yandex_music import Client
@@ -470,7 +470,7 @@ async def poll_yandex_token(
         if ym_client.me and ym_client.me.account:
             account_name = ym_client.me.account.full_name or ym_client.me.account.login or account_name
             account_id = str(ym_client.me.account.uid) if ym_client.me.account.uid else None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning("Yandex account info failed: %s", e)
 
     stmt = select(UserServiceAccount).where(
@@ -549,7 +549,7 @@ def _vk_login_step(login: str, password: str, code: str | None) -> dict[str, Any
         info = VkService(client.user_agent, token).get_user_info()
         name = " ".join(part for part in (getattr(info, "first_name", None), getattr(info, "last_name", None)) if part)
         account_name = name or account_name
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning("VK user info failed: %s", type(e).__name__)
 
     return {
@@ -565,7 +565,7 @@ def _vk_login_step(login: str, password: str, code: str | None) -> dict[str, Any
 async def login_vk(
     req: VkLoginRequest,
     current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Links VK Music by login and password. The password is used once and never stored."""
     if not req.login.strip() or not req.password:
@@ -575,7 +575,7 @@ async def login_vk(
         result = await run_in_threadpool(
             _vk_login_step, req.login.strip(), req.password, (req.code or "").strip() or None
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning("VK login failed: %s", type(e).__name__)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Не удалось связаться с VK")
 

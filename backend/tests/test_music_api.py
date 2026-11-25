@@ -1,5 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
+
 from fastapi.testclient import TestClient
 
 from services.music.dto import (
@@ -307,7 +307,7 @@ def test_user_service_connections_flow(client: TestClient):
     # 3. Connect YouTube
     with patch("app.api.services.YTMusic") as mock_yt_cls:
         mock_yt = MagicMock()
-        mock_yt.get_library_playlists.return_value = [{"title": "My YT Playlist"}]
+        mock_yt.get_account_info.return_value = {"accountName": "My YT Account"}
         mock_yt_cls.return_value = mock_yt
         yt_connect_res = client.post(
             "/api/services/youtube/connect",
@@ -532,7 +532,10 @@ def test_like_track_service_sync(client: TestClient):
         )
 
     # PUT like with mock sync
-    with patch("app.api.music.aggregator.set_track_like", new_callable=AsyncMock) as mock_sync:
+    with (
+        patch("app.api.music.settings.SYNC_SERVICE_LIKES", True),
+        patch("app.api.music.aggregator.set_track_like", new_callable=AsyncMock) as mock_sync,
+    ):
         mock_sync.return_value = True
         resp = client.put(
             "/api/music/tracks/yandex/77777/like",
@@ -546,7 +549,10 @@ def test_like_track_service_sync(client: TestClient):
         assert mock_sync.call_args[1]["liked"] is True
 
     # DELETE like with mock sync
-    with patch("app.api.music.aggregator.set_track_like", new_callable=AsyncMock) as mock_sync:
+    with (
+        patch("app.api.music.settings.SYNC_SERVICE_LIKES", True),
+        patch("app.api.music.aggregator.set_track_like", new_callable=AsyncMock) as mock_sync,
+    ):
         mock_sync.return_value = True
         del_resp = client.delete("/api/music/tracks/yandex/77777/like", headers=headers)
         assert del_resp.status_code == 200

@@ -4,8 +4,8 @@ import hashlib
 import hmac
 import mimetypes
 import time
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 from urllib.parse import quote
 
 from fastapi import HTTPException, Request, status
@@ -37,7 +37,7 @@ def verify_stream_signature(upload_id: int, user_id: int, sig_str: str) -> bool:
         payload = f"{upload_id}:{user_id}:{expires_at}"
         expected = hmac.new(settings.SECRET_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
         return hmac.compare_digest(digest, expected)
-    except Exception:
+    except (ValueError, TypeError):
         return False
 
 
@@ -64,7 +64,7 @@ def verify_service_stream_signature(service: str, service_id: str, user_id: int,
         payload = f"{service.lower()}:{service_id}:{user_id}:{expires_at}"
         expected = hmac.new(settings.SECRET_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
         return hmac.compare_digest(digest, expected)
-    except Exception:
+    except (ValueError, TypeError):
         return False
 
 
@@ -130,7 +130,7 @@ def range_stream_response(
             end = file_size - 1
         if start > end or start >= file_size or start < 0:
             raise ValueError("Invalid range values")
-    except Exception:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
             detail="Requested range not satisfiable",

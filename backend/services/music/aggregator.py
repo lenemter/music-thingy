@@ -10,7 +10,6 @@ from .base import BaseMusicAdapter
 from .dto import (
     CODE_TO_SERVICE_MAP,
     SERVICE_CODE_MAP,
-    SERVICE_NAME_MAP,
     AlbumDTO,
     ArtistDTO,
     ErrorKind,
@@ -50,14 +49,14 @@ class MusicAggregator:
         try:
             self._adapters[Service.YANDEX] = YandexMusicAdapter(token=settings.YANDEX_MUSIC_TOKEN)
             log.info("YandexMusicAdapter initialized successfully.")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.warning("Could not initialize Yandex adapter: %s", e)
 
         # 2. Initialize YouTube Music adapter
         try:
             self._adapters[Service.YOUTUBE] = YouTubeMusicAdapter()
             log.info("YouTubeMusicAdapter initialized successfully.")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.warning("Could not initialize YouTube adapter: %s", e)
 
     def register_adapter(self, adapter: BaseMusicAdapter) -> None:
@@ -200,7 +199,7 @@ class MusicAggregator:
             adapter = (user_adapters and user_adapters.get(srv)) or self._adapters[srv]
             try:
                 return await asyncio.to_thread(adapter.search, query, types, limit_per_service)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 log.warning("Search failed for service %s: %s", srv, e)
                 return SearchResultDTO(
                     query=query,
@@ -254,7 +253,7 @@ class MusicAggregator:
             by_key.setdefault(key, []).append(t)
 
         merged: list[TrackDTO] = []
-        for _, group in by_key.items():
+        for group in by_key.values():
             primary = group[0]
             sources: list[str] = []
             for item in group:

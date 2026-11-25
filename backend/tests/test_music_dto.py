@@ -1,4 +1,5 @@
 import pytest
+
 from services.music.dto import (
     AlbumDTO,
     ArtistDTO,
@@ -7,7 +8,6 @@ from services.music.dto import (
     PlaybackKind,
     PlaylistDTO,
     SearchResultDTO,
-    SearchType,
     Service,
     ServiceErrorDTO,
     TrackDTO,

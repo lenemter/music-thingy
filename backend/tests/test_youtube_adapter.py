@@ -94,20 +94,17 @@ def test_kind_from_message():
 
 
 def test_translate_errors():
-    with pytest.raises(AdapterError) as exc:
-        with _translate_errors():
-            raise YTMusicError("HTTP 429")
+    with pytest.raises(AdapterError) as exc, _translate_errors():
+        raise YTMusicError("HTTP 429")
     assert exc.value.kind == ErrorKind.RATE_LIMIT
     assert exc.value.status_code == 429
 
-    with pytest.raises(AdapterError) as exc:
-        with _translate_errors():
-            raise TimeoutError("slow")
+    with pytest.raises(AdapterError) as exc, _translate_errors():
+        raise TimeoutError("slow")
     assert exc.value.kind == ErrorKind.TIMEOUT
 
-    with pytest.raises(AdapterError) as exc:
-        with _translate_errors():
-            raise OSError("boom")
+    with pytest.raises(AdapterError) as exc, _translate_errors():
+        raise OSError("boom")
     assert exc.value.kind == ErrorKind.UNAVAILABLE
 
 

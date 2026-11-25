@@ -134,7 +134,7 @@ async def _sync_track_like(
     stmt_acc = select(UserServiceAccount).where(
         UserServiceAccount.user_id == user.id,
         UserServiceAccount.service == s_enum.value,
-        UserServiceAccount.is_active == True,  # noqa: E712
+        UserServiceAccount.is_active == True,
     )
     res_acc = await db.exec(stmt_acc)
     acc = res_acc.first()
@@ -159,6 +159,7 @@ async def list_music_services() -> list[ServiceStatusRead]:
 
 @router.get("/search", response_model=MusicSearchResponse)
 async def search_music(
+    db: Annotated[AsyncSession, Depends(get_db)],
     q: str = Query(..., min_length=1, description="Search query string"),
     services: str | None = Query(None, description="Comma-separated services: yandex,youtube,vk,spotify,soundcloud"),
     types: str | None = Query("track,album", description="Comma-separated types: track,album,artist,playlist"),
@@ -169,7 +170,6 @@ async def search_music(
         description="Results limit per service",
     ),
     current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
-    db: AsyncSession = Depends(get_db),
 ) -> MusicSearchResponse:
     """Search for tracks, albums, artists, and playlists across enabled music services."""
     target_services: list[str] = []
@@ -271,12 +271,12 @@ async def search_music(
 @router.get("/me/playlists", response_model=list[PlaylistRead])
 async def get_my_playlists(
     current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[PlaylistRead]:
     """Retrieve user's library playlists from all connected external services."""
     stmt = select(UserServiceAccount).where(
         UserServiceAccount.user_id == current_user.id,
-        UserServiceAccount.is_active == True,  # noqa: E712
+        UserServiceAccount.is_active == True,
     )
     res = await db.exec(stmt)
     accounts = res.all()
@@ -298,13 +298,13 @@ async def get_my_playlists(
 @router.get("/me/favorites", response_model=list[TrackRead])
 async def get_my_favorites(
     current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
     limit: int = Query(50, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
 ) -> list[TrackRead]:
     """Retrieve user's favorite / liked tracks from all connected external services."""
     stmt = select(UserServiceAccount).where(
         UserServiceAccount.user_id == current_user.id,
-        UserServiceAccount.is_active == True,  # noqa: E712
+        UserServiceAccount.is_active == True,
     )
     res = await db.exec(stmt)
     accounts = res.all()
@@ -329,9 +329,9 @@ async def get_my_favorites(
 @router.get("/me/liked", response_model=list[TrackRead])
 async def get_my_liked(
     current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
 ) -> list[TrackRead]:
     """Retrieve unified list of liked tracks: local site likes + connected services favorites, without duplicates."""
     stmt = (
@@ -397,7 +397,7 @@ async def get_my_liked(
 
     stmt_acc = select(UserServiceAccount).where(
         UserServiceAccount.user_id == current_user.id,
-        UserServiceAccount.is_active == True,  # noqa: E712
+        UserServiceAccount.is_active == True,
     )
     res_acc = await db.exec(stmt_acc)
     accounts = res_acc.all()
@@ -418,7 +418,7 @@ async def get_my_liked(
                     t_dict = t.to_frontend_dict()
                     t_dict["liked"] = True
                     merged_tracks.append(TrackRead(**t_dict))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning("Error fetching favorites from service %s: %s", acc.service, e)
 
     return merged_tracks[offset : offset + limit]
@@ -428,9 +428,9 @@ async def get_my_liked(
 async def like_track(
     service: str,
     service_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
     body: LikeRequest | None = None,
-    current_user: Annotated[User, Depends(get_current_user)] = None,  # type: ignore[assignment]
-    db: AsyncSession = Depends(get_db),
 ) -> LikeResponse:
     """Like a track: saves to user's favorites in database and syncs with external service if connected."""
     srv = service.lower()
@@ -460,7 +460,7 @@ async def like_track(
                     artist = artist or t_dto.artist_display
                     cover = cover or (str(t_dto.artwork_url) if t_dto.artwork_url else None)
                     duration = duration or t_dto.duration_seconds
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning("Could not fetch metadata for liked track %s:%s: %s", srv, service_id, e)
 
         title = title or f"Track {service_id}"
@@ -521,7 +521,7 @@ async def unlike_track(
     service: str,
     service_id: str,
     current_user: Annotated[User, Depends(get_current_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> LikeResponse:
     """Unlike a track: removes from user's favorites in database and syncs with external service if connected."""
     srv = service.lower()
@@ -573,8 +573,8 @@ async def unlike_track(
 async def get_track(
     service: str,
     service_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
-    db: AsyncSession = Depends(get_db),
 ) -> TrackRead:
     """Retrieve full track metadata and playback parameters by service and service ID."""
     user_adapter = await get_user_adapter(db, current_user, service)
@@ -608,8 +608,8 @@ async def get_track(
 async def get_playback_info(
     service: str,
     service_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
-    db: AsyncSession = Depends(get_db),
 ) -> PlaybackInfo:
     """Retrieve playback parameters (iframe ref, SDK ref, direct audio url) for a track."""
     user_adapter = await get_user_adapter(db, current_user, service)
@@ -658,18 +658,17 @@ async def stream_track_audio(
     service: str,
     service_id: str,
     request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
     redirect: bool = Query(False, description="Redirect directly to CDN audio URL"),
     u: int | None = Query(None, description="User ID for signed stream"),
     sig: str | None = Query(None, description="HMAC stream signature"),
     current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
-    db: AsyncSession = Depends(get_db),
 ):
     """Stream audio content for a track with HTTP Range header support or redirect to direct audio URL."""
     # Authenticate user from Authorization header OR verified time-limited HMAC stream signature
     effective_user: User | None = current_user
-    if not effective_user and u is not None and sig:
-        if verify_service_stream_signature(service, service_id, u, sig):
-            effective_user = await db.get(User, u)
+    if not effective_user and u is not None and sig and verify_service_stream_signature(service, service_id, u, sig):
+        effective_user = await db.get(User, u)
 
     user_adapter = await get_user_adapter(db, effective_user, service)
     track_dto = await aggregator.get_track(service, service_id, adapter=user_adapter)
@@ -731,8 +730,8 @@ async def stream_track_audio(
 async def get_album(
     service: str,
     service_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
-    db: AsyncSession = Depends(get_db),
 ) -> AlbumRead:
     """Retrieve album details and tracklist by service and album ID."""
     alb_dto = await aggregator.get_album(service, service_id)
@@ -774,8 +773,8 @@ async def get_artist(service: str, service_id: str) -> ArtistRead:
 async def get_playlist(
     service: str,
     service_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
-    db: AsyncSession = Depends(get_db),
 ) -> PlaylistRead:
     """Retrieve playlist details and tracklist by service and playlist ID (private ones need a linked account)."""
     user_adapter = await get_user_adapter(db, current_user, service)
