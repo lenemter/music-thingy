@@ -30,3 +30,5 @@ def test_unsupported_types_and_empty_query():
     assert a.search("песня", types=frozenset({SearchType.ALBUM})).tracks == ()
     assert a.search("  ").tracks == ()
     assert a.get_track("999") is None
+    assert a.set_track_like("1", True) is True
+    assert a.set_track_like("1", False) is True

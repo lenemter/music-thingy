@@ -40,6 +40,7 @@ from services.music.dto import (
     SERVICE_CODE_MAP,
     SearchType,
     Service,
+    TrackDTO,
 )
 from services.music.local import LocalFilesAdapter, LocalUpload
 
@@ -57,15 +58,32 @@ async def _get_user_liked_keys(db: AsyncSession, user_id: int | None) -> set[tup
     return {(s.lower(), sid) for s, sid in res.all()}
 
 
+def _get_source_code(service: str) -> str:
+    s_enum = CODE_TO_SERVICE_MAP.get(service.lower(), CODE_TO_SERVICE_MAP.get(service))
+    return SERVICE_CODE_MAP.get(s_enum, service.upper()[:2]) if s_enum else service.upper()[:2]
+
+
+def _yandex_proxy_url(service: str, service_id: str, user_id: int | None) -> str | None:
+    if service.lower() != Service.YANDEX.value:
+        return None
+    url = f"/api/music/tracks/{service.lower()}/{service_id}/stream"
+    if user_id:
+        sig = create_service_stream_signature(service.lower(), service_id, user_id)
+        url = f"{url}?u={user_id}&sig={sig}"
+    return url
+
+
 async def get_user_adapter(
     db: AsyncSession,
     user: User | None,
     service: str,
 ) -> BaseMusicAdapter | None:
     """Adapter with the user's own credentials (full tracks instead of previews), if the service is linked."""
-    s_enum = CODE_TO_SERVICE_MAP.get(service.lower())
+    s_enum = CODE_TO_SERVICE_MAP.get(service.lower(), CODE_TO_SERVICE_MAP.get(service))
     if not user or not user.id or not s_enum:
         return None
+    if s_enum == Service.LOCAL:
+        return await get_local_adapter(db, user)
     stmt = select(UserServiceAccount).where(
         UserServiceAccount.user_id == user.id,
         UserServiceAccount.service == s_enum.value,
@@ -90,7 +108,46 @@ async def get_local_adapter(db: AsyncSession, user: User | None) -> LocalFilesAd
             duration_seconds=u.duration_seconds,
             audio_url=f"/api/uploads/{u.id}/stream?sig={sig}", cover=cover,
         ))
-    return LocalFilesAdapter(items) if items else None
+    return LocalFilesAdapter(items)
+
+
+async def _sync_track_like(
+    db: AsyncSession,
+    user: User,
+    service: str,
+    service_id: str,
+    liked: bool,
+    adapter: BaseMusicAdapter | None = None,
+) -> bool:
+    s_enum = CODE_TO_SERVICE_MAP.get(service.lower(), CODE_TO_SERVICE_MAP.get(service))
+    if not s_enum:
+        return False
+    if isinstance(adapter, LocalFilesAdapter):
+        return await aggregator.set_track_like(
+            service=s_enum,
+            service_id=service_id,
+            liked=liked,
+            adapter=adapter,
+        )
+    if not settings.SYNC_SERVICE_LIKES:
+        return False
+    stmt_acc = select(UserServiceAccount).where(
+        UserServiceAccount.user_id == user.id,
+        UserServiceAccount.service == s_enum.value,
+        UserServiceAccount.is_active == True,  # noqa: E712
+    )
+    res_acc = await db.exec(stmt_acc)
+    acc = res_acc.first()
+    if not acc or not (acc.token or acc.extra_data):
+        return False
+    return await aggregator.set_track_like(
+        service=s_enum,
+        service_id=service_id,
+        liked=liked,
+        token=acc.token,
+        extra_data=acc.extra_data,
+        account_id=acc.account_id,
+    )
 
 
 @router.get("/services", response_model=list[ServiceStatusRead])
@@ -287,28 +344,29 @@ async def get_my_liked(
 
     seen_keys: set[str] = set()
     merged_tracks: list[TrackRead] = []
+    adapters: dict[Service, BaseMusicAdapter] = {}
+    local_adapter = await get_local_adapter(db, current_user)
+    if local_adapter:
+        adapters[Service.LOCAL] = local_adapter
 
     for like in local_likes:
         key = f"{like.service.lower()}:{like.service_id}"
         seen_keys.add(key)
         numeric_id = abs(hash(key)) % 10_000_000 + 1
         srv = like.service.lower()
-        source_code = "ФАЙЛ" if srv == "local" else SERVICE_CODE_MAP.get(CODE_TO_SERVICE_MAP.get(srv, Service.YANDEX), srv.upper()[:2])
+        s_enum = CODE_TO_SERVICE_MAP.get(srv)
+        adapter = adapters.get(s_enum) if s_enum else None
 
-        stream_url = (
-            f"/api/music/tracks/{srv}/{like.service_id}/stream"
-            if srv == "yandex"
-            else (f"/api/uploads/{like.service_id}/stream" if srv == "local" else None)
-        )
-        if stream_url and srv == "yandex" and current_user.id:
-            sig = create_service_stream_signature(srv, like.service_id, current_user.id)
-            stream_url = f"{stream_url}?u={current_user.id}&sig={sig}"
-        elif stream_url and srv == "local" and current_user.id:
-            try:
-                sig = create_stream_signature(int(like.service_id), current_user.id)
-                stream_url = f"{stream_url}?sig={sig}"
-            except ValueError:
-                pass
+        if adapter:
+            t_dto = await aggregator.get_track(srv, like.service_id, adapter=adapter)
+            if t_dto:
+                t_dict = t_dto.to_frontend_dict(numeric_id=numeric_id)
+                t_dict["liked"] = True
+                merged_tracks.append(TrackRead(**t_dict))
+                continue
+
+        source_code = _get_source_code(srv)
+        stream_url = _yandex_proxy_url(srv, like.service_id, current_user.id)
 
         merged_tracks.append(
             TrackRead(
@@ -390,30 +448,20 @@ async def like_track(
     cover = body.cover if body and body.cover else None
     duration = (body.duration if body and body.duration else 0) or 0
 
+    user_adapter = await get_user_adapter(db, current_user, srv)
+    t_dto: TrackDTO | None = None
+
     if not existing:
-        if srv == "local":
+        if not title or not artist:
             try:
-                up_id = int(service_id)
-                upload = await db.get(UserUpload, up_id)
-                if upload:
-                    title = title or upload.title
-                    artist = artist or upload.artist
-                    cover = cover or (upload.cover_template if upload.cover_template else (f"/api/uploads/{upload.id}/cover" if upload.cover_file else None))
-                    duration = duration or upload.duration_seconds
-            except ValueError:
-                pass
-        else:
-            if not title or not artist:
-                try:
-                    user_adapter = await get_user_adapter(db, current_user, srv)
-                    t_dto = await aggregator.get_track(srv, service_id, adapter=user_adapter)
-                    if t_dto:
-                        title = title or t_dto.title
-                        artist = artist or t_dto.artist_display
-                        cover = cover or (str(t_dto.artwork_url) if t_dto.artwork_url else None)
-                        duration = duration or t_dto.duration_seconds
-                except Exception as e:
-                    logger.warning("Could not fetch metadata for liked track %s:%s: %s", srv, service_id, e)
+                t_dto = await aggregator.get_track(srv, service_id, adapter=user_adapter)
+                if t_dto:
+                    title = title or t_dto.title
+                    artist = artist or t_dto.artist_display
+                    cover = cover or (str(t_dto.artwork_url) if t_dto.artwork_url else None)
+                    duration = duration or t_dto.duration_seconds
+            except Exception as e:
+                logger.warning("Could not fetch metadata for liked track %s:%s: %s", srv, service_id, e)
 
         title = title or f"Track {service_id}"
         artist = artist or "Неизвестный исполнитель"
@@ -435,40 +483,16 @@ async def like_track(
         cover = existing.cover
         duration = existing.duration
 
-    synced = srv == "local"
-    if srv != "local" and settings.SYNC_SERVICE_LIKES:
-        synced = False
-        s_enum = CODE_TO_SERVICE_MAP.get(srv)
-        if s_enum:
-            stmt_acc = select(UserServiceAccount).where(
-                UserServiceAccount.user_id == current_user.id,
-                UserServiceAccount.service == s_enum.value,
-                UserServiceAccount.is_active == True,  # noqa: E712
-            )
-            res_acc = await db.exec(stmt_acc)
-            acc = res_acc.first()
-            if acc and (acc.token or acc.extra_data):
-                synced = await aggregator.set_track_like(
-                    service=s_enum,
-                    service_id=service_id,
-                    liked=True,
-                    token=acc.token,
-                    extra_data=acc.extra_data,
-                    account_id=acc.account_id,
-                )
+    synced = await _sync_track_like(db, current_user, srv, service_id, liked=True, adapter=user_adapter)
 
-    source_code = "ФАЙЛ" if srv == "local" else SERVICE_CODE_MAP.get(CODE_TO_SERVICE_MAP.get(srv, Service.YANDEX), srv.upper()[:2])
+    if t_dto is None and isinstance(user_adapter, LocalFilesAdapter):
+        t_dto = await aggregator.get_track(srv, service_id, adapter=user_adapter)
+
+    source_code = _get_source_code(srv)
     numeric_id = abs(hash(f"{srv}:{service_id}")) % 10_000_000 + 1
-    stream_url = f"/api/music/tracks/{srv}/{service_id}/stream" if srv == "yandex" else (f"/api/uploads/{service_id}/stream" if srv == "local" else None)
-    if stream_url and srv == "yandex" and current_user.id:
-        sig = create_service_stream_signature(srv, service_id, current_user.id)
-        stream_url = f"{stream_url}?u={current_user.id}&sig={sig}"
-    elif stream_url and srv == "local" and current_user.id:
-        try:
-            sig = create_stream_signature(int(service_id), current_user.id)
-            stream_url = f"{stream_url}?sig={sig}"
-        except ValueError:
-            pass
+    stream_url = _yandex_proxy_url(srv, service_id, current_user.id) or (
+        str(t_dto.direct_audio_url) if t_dto and t_dto.direct_audio_url else None
+    )
 
     return LikeResponse(
         id=numeric_id,
@@ -519,29 +543,10 @@ async def unlike_track(
         await db.delete(existing)
         await db.commit()
 
-    synced = srv == "local"
-    if srv != "local" and settings.SYNC_SERVICE_LIKES:
-        synced = False
-        s_enum = CODE_TO_SERVICE_MAP.get(srv)
-        if s_enum:
-            stmt_acc = select(UserServiceAccount).where(
-                UserServiceAccount.user_id == current_user.id,
-                UserServiceAccount.service == s_enum.value,
-                UserServiceAccount.is_active == True,  # noqa: E712
-            )
-            res_acc = await db.exec(stmt_acc)
-            acc = res_acc.first()
-            if acc and (acc.token or acc.extra_data):
-                synced = await aggregator.set_track_like(
-                    service=s_enum,
-                    service_id=service_id,
-                    liked=False,
-                    token=acc.token,
-                    extra_data=acc.extra_data,
-                    account_id=acc.account_id,
-                )
+    user_adapter = await get_user_adapter(db, current_user, srv)
+    synced = await _sync_track_like(db, current_user, srv, service_id, liked=False, adapter=user_adapter)
 
-    source_code = "ФАЙЛ" if srv == "local" else SERVICE_CODE_MAP.get(CODE_TO_SERVICE_MAP.get(srv, Service.YANDEX), srv.upper()[:2])
+    source_code = _get_source_code(srv)
     numeric_id = abs(hash(f"{srv}:{service_id}")) % 10_000_000 + 1
 
     return LikeResponse(
@@ -572,53 +577,6 @@ async def get_track(
     db: AsyncSession = Depends(get_db),
 ) -> TrackRead:
     """Retrieve full track metadata and playback parameters by service and service ID."""
-
-    if service.lower() == "local":
-        try:
-            up_id = int(service_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Local track '{service_id}' not found",
-            )
-        upload = await db.get(UserUpload, up_id)
-        if not upload:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Local track '{service_id}' not found",
-            )
-        sig = create_stream_signature(upload.id or 0, upload.user_id)
-        stream_url = f"/api/uploads/{upload.id}/stream?sig={sig}"
-        cover_val = upload.cover_template if upload.cover_template else (
-            f"/api/uploads/{upload.id}/cover" if upload.cover_file else None
-        )
-        liked_keys = await _get_user_liked_keys(db, current_user.id if current_user else None)
-        is_liked = ("local", str(upload.id)) in liked_keys
-        return TrackRead(
-            id=upload.id or 0,
-            track_key=f"local:{upload.id}",
-            service="local",
-            service_id=str(upload.id),
-            title=upload.title,
-            artist=upload.artist,
-            artists=[upload.artist],
-            cover=cover_val or "",
-            artwork_url=cover_val,
-            duration=upload.duration_seconds,
-            duration_ms=upload.duration_seconds * 1000,
-            sources=["ФАЙЛ"],
-            source="ФАЙЛ",
-            is_playable=True,
-            liked=is_liked,
-            direct_audio_url=stream_url,
-            stream_url=stream_url,
-            playback=PlaybackInfo(
-                kind="direct_url",
-                ref=stream_url,
-                direct_audio_url=stream_url,
-            ),
-        )
-
     user_adapter = await get_user_adapter(db, current_user, service)
     track_dto = await aggregator.get_track(service, service_id, adapter=user_adapter)
     if not track_dto:
@@ -633,10 +591,11 @@ async def get_track(
         t_dict["liked"] = True
     if track_dto.direct_audio_url and track_dto.service == Service.YANDEX:
         # Yandex CDN blocks browser origins (CORS 403 Forbidden). Route through stream proxy.
-        stream_url = f"/api/music/tracks/{track_dto.service.value}/{track_dto.service_id}/stream"
-        if current_user and current_user.id:
-            sig = create_service_stream_signature(track_dto.service.value, track_dto.service_id, current_user.id)
-            stream_url = f"{stream_url}?u={current_user.id}&sig={sig}"
+        stream_url = _yandex_proxy_url(
+            track_dto.service.value,
+            track_dto.service_id,
+            current_user.id if current_user else None,
+        )
         t_dict["direct_audio_url"] = stream_url
         if t_dict.get("playback"):
             t_dict["playback"]["direct_audio_url"] = stream_url
@@ -653,29 +612,6 @@ async def get_playback_info(
     db: AsyncSession = Depends(get_db),
 ) -> PlaybackInfo:
     """Retrieve playback parameters (iframe ref, SDK ref, direct audio url) for a track."""
-
-    if service.lower() == "local":
-        try:
-            up_id = int(service_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Local track '{service_id}' not found",
-            )
-        upload = await db.get(UserUpload, up_id)
-        if not upload:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Local track '{service_id}' not found",
-            )
-        sig = create_stream_signature(upload.id or 0, upload.user_id)
-        stream_url = f"/api/uploads/{upload.id}/stream?sig={sig}"
-        return PlaybackInfo(
-            kind="direct_url",
-            ref=stream_url,
-            direct_audio_url=stream_url,
-        )
-
     user_adapter = await get_user_adapter(db, current_user, service)
     track_dto = await aggregator.get_track(service, service_id, adapter=user_adapter)
     if not track_dto:
@@ -729,12 +665,6 @@ async def stream_track_audio(
     db: AsyncSession = Depends(get_db),
 ):
     """Stream audio content for a track with HTTP Range header support or redirect to direct audio URL."""
-    if service.lower() == "local":
-        return RedirectResponse(
-            url=f"/api/uploads/{service_id}/stream",
-            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
-        )
-
     # Authenticate user from Authorization header OR verified time-limited HMAC stream signature
     effective_user: User | None = current_user
     if not effective_user and u is not None and sig:
@@ -751,7 +681,7 @@ async def stream_track_audio(
 
     audio_url = str(track_dto.direct_audio_url)
 
-    if redirect:
+    if redirect or audio_url.startswith("/"):
         return RedirectResponse(url=audio_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
     headers = {

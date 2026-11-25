@@ -90,3 +90,6 @@ class LocalFilesAdapter(BaseMusicAdapter):
 
     def get_user_favorites(self, account_id: str | None = None, limit: int = 50) -> list[TrackDTO]:
         return []
+
+    def set_track_like(self, service_id: str, liked: bool) -> bool:
+        return True
