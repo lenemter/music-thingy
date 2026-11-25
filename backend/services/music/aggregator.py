@@ -160,9 +160,10 @@ class MusicAggregator:
         token: str | None = None,
         extra_data: str | None = None,
         account_id: str | None = None,
+        adapter: BaseMusicAdapter | None = None,
     ) -> bool:
         """Sync like / unlike state with external service. Returns True if sync succeeded."""
-        adapter = self.create_user_adapter(service, token=token, extra_data=extra_data)
+        adapter = adapter or self.create_user_adapter(service, token=token, extra_data=extra_data)
         if not adapter:
             return False
         return await asyncio.to_thread(adapter.set_track_like, service_id, liked)
@@ -178,6 +179,7 @@ class MusicAggregator:
         # If no specific services requested, try all supported services
         if not services:
             services = [Service.YANDEX, Service.YOUTUBE, Service.VK, Service.SPOTIFY, Service.SOUNDCLOUD]
+            services += [s for s in (user_adapters or {}) if s not in services]
 
         # Resolve requested services
         target_services: list[Service] = []
