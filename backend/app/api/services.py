@@ -145,15 +145,16 @@ async def connect_service(
 
         try:
             yt = YTMusic(auth=parsed_auth)
-            # Verify library access
-            pls = yt.get_library_playlists(limit=1)
-            account_name = "YouTube Music"
+            info = yt.get_account_info()
+            if not isinstance(info, dict) or not info.get("accountName"):
+                raise ValueError("YouTube не вернул данные аккаунта — заголовки устарели или вход не выполнен")
+            account_name = str(info.get("accountName"))
             saved_token = json.dumps(parsed_auth) if isinstance(parsed_auth, dict) else str(parsed_auth)
         except Exception as e:
             logger.warning("YouTube auth validation failed: %s", e)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Не удалось авторизоваться в YouTube Music: {e}",
+                detail="YouTube Music не принял данные входа — скопируйте заголовки запроса browse с music.youtube.com заново",
             )
 
     # 3. VK Music validation
@@ -373,6 +374,18 @@ async def poll_youtube_token(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Ошибка авторизации: {e}",
         )
+
+    if not isinstance(token_data, dict) or token_data.get("error") or not token_data.get("access_token"):
+        error_code = token_data.get("error") if isinstance(token_data, dict) else None
+        if error_code in ("authorization_pending", "slow_down"):
+            return {"status": "pending", "message": "Ожидание подтверждения пользователем"}
+        if error_code == "access_denied":
+            detail = "Вход отклонён. Проверьте, что ваша почта добавлена в Test users приложения Google"
+        elif error_code == "expired_token":
+            detail = "Код входа истёк — начните привязку заново"
+        else:
+            detail = "Google не выдал доступ к YouTube Music — попробуйте привязать заново"
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
     # Save to user service accounts
     token_json = json.dumps(token_data)

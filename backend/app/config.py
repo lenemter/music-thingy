@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     YANDEX_MUSIC_TOKEN: str | None = None
     YOUTUBE_CLIENT_ID: str | None = None
     YOUTUBE_CLIENT_SECRET: str | None = None
+    SYNC_SERVICE_LIKES: bool = False
     VK_DEFAULT_USER_AGENT: str = "KateMobileAndroid/56 lite-arm64-v8a (Android 11; SDK 30; arm64-v8a; samsung SM-G973F; ru)"
     DEFAULT_SEARCH_LIMIT: int = 10
     MAX_SEARCH_LIMIT: int = 50
