@@ -11,15 +11,17 @@ from __future__ import annotations
 """
 import json
 import logging
+import os
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any, ClassVar, Literal
 
-from ytmusicapi import LikeStatus, YTMusic
+from ytmusicapi import LikeStatus, OAuthCredentials, YTMusic
 from ytmusicapi.exceptions import YTMusicError
 
 from .base import AdapterError, BaseMusicAdapter
+from .youtube_data_api import YouTubeDataApi
 from .dto import (ArtistDTO, ErrorKind, PlaybackDTO, PlaybackKind,
                   PlaylistDTO, SearchResultDTO, SearchType, Service, TrackDTO)
 
@@ -242,10 +244,13 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
         resolve_audio_url: bool = True,
         playlist_limit: int | None = 200,
         ydl_opts: dict[str, Any] | None = None,
+        oauth_credentials: OAuthCredentials | None = None,
     ) -> None:
         kwargs: dict[str, Any] = {"language": language}
         if auth is not None:
             kwargs["auth"] = auth
+        if oauth_credentials is not None:
+            kwargs["oauth_credentials"] = oauth_credentials
         if location:
             kwargs["location"] = location
         if proxies:
@@ -255,6 +260,7 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
         self._resolve_audio_url = resolve_audio_url
         self._playlist_limit = playlist_limit
         self._ydl_opts = ydl_opts
+        self._data_api: YouTubeDataApi | None = None
 
     def search(self, query: str, types: frozenset[SearchType] = frozenset({SearchType.TRACK}),
                limit: int = 10) -> SearchResultDTO:
@@ -267,7 +273,7 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
         playlists: tuple[PlaylistDTO, ...] = ()
 
         for search_type in SearchType:
-            if search_type not in types:
+            if search_type not in types or search_type not in _SEARCH_FILTERS:
                 continue
             with _translate_errors():
                 items = self._yt.search(query, filter=_SEARCH_FILTERS[search_type],
@@ -317,6 +323,13 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
         pid = service_id.strip().removeprefix("VL")
         if not pid:
             raise AdapterError(ErrorKind.UNKNOWN, "Пустой id плейлиста")
+        if self._data_api is not None:
+            try:
+                playlist = self._data_api.playlist(pid, limit=self._playlist_limit)
+                if playlist is not None:
+                    return playlist
+            except Exception as e:
+                log.warning("YouTube Data API playlist failed, falling back to public API: %s", e)
         try:
             with _translate_errors():
                 data = self._yt.get_playlist(pid, limit=self._playlist_limit)
@@ -348,6 +361,15 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
                     auth_val = json.loads(extra_data)
                 except Exception:
                     auth_val = extra_data
+            if isinstance(auth_val, dict) and "refresh_token" in auth_val:
+                client_id = os.environ.get("YOUTUBE_CLIENT_ID")
+                client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
+                if not client_id or not client_secret:
+                    log.warning("YouTube OAuth account found, but YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET are not set")
+                    return None
+                adapter = cls()
+                adapter._data_api = YouTubeDataApi(auth_val, client_id, client_secret)
+                return adapter
             return cls(auth=auth_val)
         except Exception as e:
             log.warning("Failed to initialize user YouTube adapter: %s", e)
@@ -358,6 +380,12 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
         account_id: str | None = None,
         limit: int = 50,
     ) -> list[PlaylistDTO]:
+        if self._data_api is not None:
+            try:
+                return self._data_api.user_playlists(limit=None)
+            except Exception as e:
+                log.warning("Failed to fetch YouTube playlists via Data API: %s", e)
+                return []
         with _translate_errors():
             try:
                 items = self._yt.get_library_playlists(limit=limit) or []
@@ -371,6 +399,12 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
         account_id: str | None = None,
         limit: int = 50,
     ) -> list[TrackDTO]:
+        if self._data_api is not None:
+            try:
+                return self._data_api.liked_tracks(limit=limit)
+            except Exception as e:
+                log.warning("Failed to fetch YouTube favorites via Data API: %s", e)
+                return []
         with _translate_errors():
             try:
                 liked = self._yt.get_liked_songs(limit=limit) or {}

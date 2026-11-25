@@ -412,8 +412,8 @@ async def like_track(
         cover = existing.cover
         duration = existing.duration
 
-    synced = True
-    if srv != "local":
+    synced = srv == "local"
+    if srv != "local" and settings.SYNC_SERVICE_LIKES:
         synced = False
         s_enum = CODE_TO_SERVICE_MAP.get(srv)
         if s_enum:
@@ -496,8 +496,8 @@ async def unlike_track(
         await db.delete(existing)
         await db.commit()
 
-    synced = True
-    if srv != "local":
+    synced = srv == "local"
+    if srv != "local" and settings.SYNC_SERVICE_LIKES:
         synced = False
         s_enum = CODE_TO_SERVICE_MAP.get(srv)
         if s_enum:
