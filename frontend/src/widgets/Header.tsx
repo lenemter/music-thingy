@@ -6,6 +6,7 @@ import { setServiceActive } from "../shared/api.ts";
 import SearchIcon from "../shared/icons/search.svg?react";
 import CloseIcon from "../shared/icons/close.svg?react";
 import LogoutIcon from "../shared/icons/logout.svg?react";
+import { useIsMobile } from "../shared/useIsMobile.ts";
 
 type HeaderProps = {
     user: User
@@ -17,6 +18,7 @@ type HeaderProps = {
 }
 
 function Header({ user, services, onLogout, onSearch, onServicesChange, searchQuery = "" }: HeaderProps) {
+    const isMobile = useIsMobile();
     const [togglingService, setTogglingService] = useState<ServiceId | null>(null);
     const [unavailable, setUnavailable] = useState<ServiceId[]>([]);
     const [query, setQuery] = useState(searchQuery);
@@ -114,13 +116,35 @@ function Header({ user, services, onLogout, onSearch, onServicesChange, searchQu
         };
     }, [isMenuOpen]);
 
+    const serviceTags = (
+        <span className="tags">
+            {linkedServices.map((service) => (
+                <button
+                    key={service.id}
+                    type="button"
+                    className={
+                        "tag tag-button"
+                        + (service.online ? " active" : "")
+                        + (unavailable.includes(service.id) ? " unavailable" : "")
+                    }
+                    title={getTagTitle(service)}
+                    disabled={togglingService !== null}
+                    onClick={() => toggleService(service)}
+                >
+                    {service.code}
+                </button>
+            ))}
+        </span>
+    );
+
     return (
         <header className="header">
             <form className="search" role="search" onSubmit={handleSearch}>
                 <SearchIcon/>
                 <input
                     type="search"
-                    placeholder="Трек, альбом или исполнитель — ищем во всех сервисах"
+                    placeholder={isMobile ? "Трек или исполнитель" : "Трек, альбом или исполнитель — ищем во всех сервисах"}
+                    aria-label="Поиск по всем сервисам"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                 />
@@ -129,24 +153,7 @@ function Header({ user, services, onLogout, onSearch, onServicesChange, searchQu
                         <CloseIcon/>
                     </button>
                 )}
-                <span className="tags">
-                    {linkedServices.map((service) => (
-                        <button
-                            key={service.id}
-                            type="button"
-                            className={
-                                "tag tag-button"
-                                + (service.online ? " active" : "")
-                                + (unavailable.includes(service.id) ? " unavailable" : "")
-                            }
-                            title={getTagTitle(service)}
-                            disabled={togglingService !== null}
-                            onClick={() => toggleService(service)}
-                        >
-                            {service.code}
-                        </button>
-                    ))}
-                </span>
+                {!isMobile && serviceTags}
             </form>
 
             <div className="profile-menu" ref={menuRef}>
@@ -171,6 +178,30 @@ function Header({ user, services, onLogout, onSearch, onServicesChange, searchQu
                     </div>
                 )}
             </div>
+            {isMobile && searchQuery !== "" && linkedServices.length > 0 && (
+                <div className="source-chips" role="group" aria-label="Где искать">
+                    {linkedServices.map((service) => (
+                        <label
+                            key={service.id}
+                            className={unavailable.includes(service.id) ? "source-chip unavailable" : "source-chip"}
+                            title={getTagTitle(service)}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={service.online}
+                                disabled={togglingService !== null}
+                                onChange={() => toggleService(service)}
+                            />
+                            <span className="source-chip-box" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M5 12.5l4.5 4.5L19 7.5"/>
+                                </svg>
+                            </span>
+                            {service.name}
+                        </label>
+                    ))}
+                </div>
+            )}
         </header>
     )
 }

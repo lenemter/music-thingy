@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Grain from "./Grain.tsx";
 import { NoteIcon, NoteOffIcon } from "./Skeleton.tsx";
+import { hiResCover } from "../shared/coverTemplates.ts";
 
 type CoverProps = {
     src: string
@@ -15,7 +16,7 @@ function Cover({ src, size, fallback, onAccent = false }: CoverProps) {
     const [loaded, setLoaded] = useState<string | null>(null);
     const [failed, setFailed] = useState<string[]>([]);
 
-    const candidates = [src, fallback].filter((item): item is string => Boolean(item));
+    const candidates = [hiResCover(src), fallback].filter((item): item is string => Boolean(item));
     const current = candidates.find((item) => !failed.includes(item));
     const isLoaded = current !== undefined && loaded === current;
     const iconSize = ICON_SIZE[size];

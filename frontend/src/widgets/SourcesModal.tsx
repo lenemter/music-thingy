@@ -11,6 +11,7 @@ type SourcesModalProps = {
     services: Service[]
     onUpdate: (services: Service[]) => void
     onClose: () => void
+    asPage?: boolean
 }
 
 function getLinkError(err: unknown) {
@@ -20,7 +21,7 @@ function getLinkError(err: unknown) {
     return err instanceof Error ? err.message : "Не удалось начать вход";
 }
 
-function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
+function SourcesModal({ services, onUpdate, onClose, asPage = false }: SourcesModalProps) {
     const [error, setError] = useState("");
     const [loadingService, setLoadingService] = useState<ServiceId | null>(null);
     const [isClosing, setIsClosing] = useState(false);
@@ -133,15 +134,8 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
         setLoadingService(null);
     }
 
-    return (
-        <div className={isClosing ? "modal-overlay closing" : "modal-overlay"} onMouseDown={closeModal}>
-            <div className="modal" onMouseDown={(event) => event.stopPropagation()}>
-                <div className="track-edit-header">
-                    <div className="track-edit-heading"><h2>Источники</h2></div>
-                    <button type="button" className="track-edit-close" title="Закрыть" aria-label="Закрыть" onClick={closeModal}>
-                        <CloseIcon width={20} height={20}/>
-                    </button>
-                </div>
+    const content = (
+            <>
                 <p className="modal-text">
                     Привяжите свои аккаунты, чтобы слушать музыку из своих подписок. Включать и выключать сервисы в поиске можно кнопками в строке поиска.
                 </p>
@@ -153,7 +147,7 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
                             <span className="source-item-info">
                                 <span className="source-item-name">{service.name}</span>
                                 <span className="mono">
-                                    {service.linked ? (service.accountName ?? "ваш аккаунт") + " · " + (service.online ? "включён" : "выключен") : "не привязан"}
+                                    {service.linked ? (service.accountName ?? "ваш аккаунт") : "не привязан"}
                                 </span>
                             </span>
 
@@ -204,6 +198,28 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
                 )}
 
                 {error && <p className="auth-error">{error}</p>}
+            </>
+    );
+
+    if (asPage) {
+        return (
+            <section className="section sources-page">
+                <h1 className="library-title">Источники</h1>
+                {content}
+            </section>
+        )
+    }
+
+    return (
+        <div className={isClosing ? "modal-overlay closing" : "modal-overlay"} onMouseDown={closeModal}>
+            <div className="modal" onMouseDown={(event) => event.stopPropagation()}>
+                <div className="track-edit-header">
+                    <div className="track-edit-heading"><h2>Источники</h2></div>
+                    <button type="button" className="track-edit-close" title="Закрыть" aria-label="Закрыть" onClick={closeModal}>
+                        <CloseIcon width={20} height={20}/>
+                    </button>
+                </div>
+                {content}
             </div>
         </div>
     )

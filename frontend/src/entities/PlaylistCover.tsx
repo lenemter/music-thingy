@@ -5,6 +5,7 @@ import type { LibraryPlaylist } from "../shared/usePlaylists.ts";
 import HeartFilledIcon from "../shared/icons/heart-filled.svg?react";
 import { EyeOffIcon } from "./EyeIcons.tsx";
 import { NoteIcon } from "./Skeleton.tsx";
+import { hiResCover } from "../shared/coverTemplates.ts";
 
 type PlaylistCoverProps = {
     playlist: LibraryPlaylist
@@ -68,7 +69,7 @@ function PlaylistCover({ playlist, size }: PlaylistCoverProps) {
             <>
                 {!isLoaded && <span className="playlist-loading"><NoteIcon size={size === "card" ? 44 : 14}/></span>}
                 <img
-                    src={playlist.cover}
+                    src={hiResCover(playlist.cover)}
                     alt=""
                     className={isLoaded ? "" : "hidden"}
                     onLoad={() => setIsLoaded(true)}
@@ -80,7 +81,7 @@ function PlaylistCover({ playlist, size }: PlaylistCoverProps) {
         const tiles = playlist.covers.slice(0, 4);
         content = (
             <span className={"playlist-collage tiles-" + tiles.length}>
-                {tiles.map((cover) => <img key={cover} src={cover} alt=""/>)}
+                {tiles.map((cover) => <img key={cover} src={hiResCover(cover)} alt=""/>)}
             </span>
         );
     } else {
