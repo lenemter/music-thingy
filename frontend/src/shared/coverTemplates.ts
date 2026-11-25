@@ -56,3 +56,21 @@ export function fallbackCover(id: number | string) {
     }
     return coverTemplates[sum % coverTemplates.length];
 }
+
+const SIZED_GOOGLE_IMAGE = /^(https:\/\/[^/]*(googleusercontent\.com|ggpht\.com)\/[^?#]*)=w\d+-h\d+[^/?#]*$/;
+
+const SIZED_YANDEX_IMAGE = /^(https:\/\/[^/]*yandex\.net\/[^?#]*\/)\d{2,3}x\d{2,3}$/;
+
+export function hiResCover(url: string): string;
+export function hiResCover(url: string | undefined): string | undefined;
+export function hiResCover(url: string | undefined) {
+    if (!url) {
+        return url;
+    }
+    const google = url.match(SIZED_GOOGLE_IMAGE);
+    if (google) {
+        return google[1] + "=w1200-h1200-l90-rj";
+    }
+    const yandex = url.match(SIZED_YANDEX_IMAGE);
+    return yandex ? yandex[1] + "1000x1000" : url;
+}

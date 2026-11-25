@@ -76,12 +76,18 @@ def _translate_errors() -> Iterator[None]:
         raise AdapterError(kind, msg, status) from e
 
 
+_COVER_SIZE = 1200
+_SIZED_THUMB_RE = re.compile(r"=w\d+-h\d+[^/?#]*$")
+
+
 def _best_thumbnail(thumbs: Any) -> str | None:
     if not isinstance(thumbs, list):
         return None
     ok = [t for t in thumbs if isinstance(t, dict) and str(t.get("url", "")).startswith("http")]
     best = max(ok, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0), default=None)
-    return best["url"] if best else None
+    if not best:
+        return None
+    return _SIZED_THUMB_RE.sub(f"=w{_COVER_SIZE}-h{_COVER_SIZE}-l90-rj", best["url"])
 
 
 def _parse_duration_ms(item: dict[str, Any]) -> int | None:

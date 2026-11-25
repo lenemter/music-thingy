@@ -8,6 +8,7 @@ import { removeTrackFromPlaylist } from "../shared/playlists.ts";
 import { markPlaylistPlayed } from "../shared/history.ts";
 import { getTrackKey } from "../shared/favorites.ts";
 import { formatLongTime, trackCount } from "../shared/format.ts";
+import { getServiceName } from "../shared/music/services.ts";
 import type { LibraryPlaylist } from "../shared/usePlaylists.ts";
 import type { Service, Track } from "../shared/types.ts";
 import PlayIcon from "../shared/icons/play.svg?react";
@@ -94,6 +95,8 @@ function PlaylistView(props: PlaylistViewProps) {
         meta.push(unavailableCount + " недоступно");
     }
 
+    const serviceName = playlist.service ? getServiceName(playlist.service) : "";
+
     return (
         <section className="section library">
             <button className="link-plain section-link playlist-back" onClick={onBack}>← МЕДИАТЕКА</button>
@@ -103,7 +106,7 @@ function PlaylistView(props: PlaylistViewProps) {
                     <PlaylistCover key={playlist.id} playlist={playlist} size="card"/>
                 </div>
                 <div className="playlist-hero-info">
-                    <span className="label">{kindLabels[playlist.kind]}</span>
+                    <span className="label">{playlist.kind === "service" && playlist.service ? "ПЛЕЙЛИСТ · " + serviceName.toUpperCase() : kindLabels[playlist.kind]}</span>
                     <h1 className="library-title">{playlist.name}</h1>
                     <span className="mono">{playlist.unavailable ? playlist.subtitle : meta.join(" · ")}</span>
                     <div className="playlist-actions">
@@ -123,7 +126,7 @@ function PlaylistView(props: PlaylistViewProps) {
                         )}
                         {playlist.externalUrl && (
                             <a className="button outline-light small" href={playlist.externalUrl} target="_blank" rel="noopener noreferrer">
-                                Открыть в сервисе
+                                {serviceName ? "Открыть в " + serviceName.replace(/Музыка$/, "Музыке") : "Открыть в сервисе"}
                             </a>
                         )}
                     </div>

@@ -172,9 +172,9 @@ function LibraryPage(props: LibraryPageProps) {
                         }}
                     />
                     <div className="library-buttons">
-                        <button className="button accent" onClick={onCreatePlaylist}>
+                        <button className="button accent library-new" aria-label="Новый плейлист" onClick={onCreatePlaylist}>
                             <PlusIcon width={18} height={18}/>
-                            Новый плейлист
+                            <span>Новый плейлист</span>
                         </button>
                     </div>
                 </div>
@@ -214,9 +214,9 @@ function LibraryPage(props: LibraryPageProps) {
                 <div className="section-header library-subheader uploads-header">
                     <h2>Загрузки</h2>
                     <span className="mono">{trackCount(files.length)}</span>
-                    <button className="button accent uploads-button" disabled={uploader.isUploading} onClick={() => inputRef.current?.click()}>
+                    <button className="button accent uploads-button" aria-label="Загрузить музыку" disabled={uploader.isUploading} onClick={() => inputRef.current?.click()}>
                         <UploadIcon width={18} height={18}/>
-                        {uploader.isUploading ? "Загружаем…" : "Загрузить музыку"}
+                        <span>{uploader.isUploading ? "Загружаем…" : "Загрузить музыку"}</span>
                     </button>
                 </div>
 

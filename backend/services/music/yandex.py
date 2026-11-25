@@ -61,7 +61,7 @@ def _translate_errors() -> Iterator[None]:
         raise AdapterError(ErrorKind.UNKNOWN, str(e)) from e
 
 
-def _cover_url(entity: Any, size: str = "400x400") -> str | None:
+def _cover_url(entity: Any, size: str = "1000x1000") -> str | None:
     uri = getattr(entity, "cover_uri", None)
     if not isinstance(uri, str):
         cover = getattr(entity, "cover", None)

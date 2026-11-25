@@ -1,5 +1,5 @@
 export type Route = {
-    page: "home" | "library"
+    page: "home" | "search" | "library"
     playlistId: string | null
     query: string
 }
@@ -12,6 +12,9 @@ export function routeToHash(route: Route) {
         : route.page === "library" ? "#/library" : "#/";
     if (route.query) {
         return base + (base.endsWith("/") ? "" : "/") + "search/" + encodeURIComponent(route.query);
+    }
+    if (route.page === "search" && !route.playlistId) {
+        return "#/search";
     }
     return base;
 }
@@ -28,6 +31,8 @@ export function parseHash(hash: string): Route {
         route.page = "library";
         route.playlistId = safeDecode(parts[index + 1]);
         index += 2;
+    } else if (parts[index] === "search") {
+        route.page = "search";
     }
     if (parts[index] === "search" && parts[index + 1]) {
         route.query = safeDecode(parts.slice(index + 1).join("/"));

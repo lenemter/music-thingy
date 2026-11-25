@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Navbar from "./widgets/Navbar.tsx";
+import Header from "./widgets/Header.tsx";
 import MainPage from "./pages/MainPage.tsx";
 import AuthPage from "./pages/AuthPage.tsx";
 import Player from "./widgets/Player.tsx";
@@ -27,6 +28,17 @@ import Toast from "./widgets/Toast.tsx";
 import QueuePanel from "./widgets/QueuePanel.tsx";
 import { confirmAction } from "./shared/confirm.ts";
 import { trackCount } from "./shared/format.ts";
+import MobileTabBar from "./widgets/MobileTabBar.tsx";
+import type { MobileTab } from "./widgets/MobileTabBar.tsx";
+import { useIsMobile } from "./shared/useIsMobile.ts";
+
+type Overlay = "player" | "queue" | "sources"
+type Overlays = Partial<Record<Overlay | "dialog", boolean>>
+
+function currentOverlays(): Overlays {
+    const state = window.history.state as { overlays?: Overlays } | null;
+    return state && typeof state === "object" && state.overlays ? state.overlays : {};
+}
 
 type NameModal = { mode: "create", track?: Track } | { mode: "rename", playlist: LibraryPlaylist }
 
@@ -55,6 +67,31 @@ function App() {
     const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash));
     const { page, query: searchQuery, playlistId: openPlaylistId } = route;
     const [isSourcesOpen, setIsSourcesOpen] = useState(false);
+    const isMobile = useIsMobile();
+    const [isPlayerExpanded, setIsPlayerExpanded] = useState(false);
+    const [isSheetOpening, setIsSheetOpening] = useState(false);
+    const [isSheetClosing, setIsSheetClosing] = useState(false);
+    const [wasPlayerExpanded, setWasPlayerExpanded] = useState(false);
+    if (wasPlayerExpanded !== isPlayerExpanded) {
+        setWasPlayerExpanded(isPlayerExpanded);
+        setIsSheetClosing(!isPlayerExpanded && isMobile);
+    }
+
+    useEffect(() => {
+        if (!isSheetClosing) {
+            return;
+        }
+        const timer = setTimeout(() => setIsSheetClosing(false), 220);
+        return () => clearTimeout(timer);
+    }, [isSheetClosing]);
+
+    useEffect(() => {
+        if (!isSheetOpening) {
+            return;
+        }
+        const timer = setTimeout(() => setIsSheetOpening(false), 300);
+        return () => clearTimeout(timer);
+    }, [isSheetOpening]);
     const [files, setFiles] = useState<UserFile[]>([]);
     const [servicesReady, setServicesReady] = useState(false);
     const { playlists, isLoading: isLoadingPlaylists, recentTracks, continuePlaylists, wave } = usePlaylists(user, services, files, servicesReady);
@@ -94,7 +131,6 @@ function App() {
     const [trackToAdd, setTrackToAdd] = useState<Track | null>(null);
     const [queueState, setQueueState] = useState<"closed" | "open" | "closing">("closed");
     const isQueueOpen = queueState === "open";
-    const closeQueue = useCallback(() => setQueueState((state) => (state === "open" ? "closing" : state)), []);
 
     useEffect(() => {
         if (queueState !== "closing") {
@@ -106,11 +142,22 @@ function App() {
 
     useEffect(() => subscribeAddToPlaylist(setTrackToAdd), []);
 
+    const hasDialog = trackToAdd !== null || nameModal !== null;
+    useEffect(() => {
+        const overlays = currentOverlays();
+        if (hasDialog && !overlays.dialog) {
+            window.history.pushState({ overlays: { ...overlays, dialog: true } }, "", window.location.href);
+        } else if (!hasDialog && overlays.dialog) {
+            window.history.back();
+        }
+    }, [hasDialog]);
+
     function navigate(next: Route, replace = false) {
         setRoute(next);
         const hash = routeToHash(next);
-        if (hash !== window.location.hash && !(hash === "#/" && window.location.hash === "")) {
-            if (replace) {
+        const isOverOverlay = Object.values(currentOverlays()).some(Boolean);
+        if (isOverOverlay || (hash !== window.location.hash && !(hash === "#/" && window.location.hash === ""))) {
+            if (replace || isOverOverlay) {
                 window.history.replaceState(null, "", hash);
             } else {
                 window.history.pushState(null, "", hash);
@@ -118,13 +165,70 @@ function App() {
         }
     }
 
+    function applyOverlays(overlays: Overlays) {
+        setIsPlayerExpanded(Boolean(overlays.player));
+        setQueueState((state) => (overlays.queue ? "open" : state === "open" ? "closing" : state));
+        setIsSourcesOpen(Boolean(overlays.sources));
+    }
+
+    function openOverlay(name: Overlay) {
+        if (currentOverlays()[name]) {
+            applyOverlays(currentOverlays());
+            return;
+        }
+        const overlays = { ...currentOverlays(), [name]: true };
+        window.history.pushState({ overlays }, "", window.location.href);
+        if (name === "player") {
+            setIsSheetOpening(true);
+        }
+        applyOverlays(overlays);
+    }
+
+    function closeOverlay(name: Overlay) {
+        const overlays = currentOverlays();
+        if (overlays[name]) {
+            window.history.go(name === "player" && overlays.queue ? -2 : -1);
+            return;
+        }
+        applyOverlays({ ...overlays, [name]: false, ...(name === "player" ? { queue: false } : {}) });
+    }
+
     useEffect(() => {
         function handlePop() {
             setRoute(parseHash(window.location.hash));
+            const overlays = currentOverlays();
+            setIsPlayerExpanded((wasExpanded) => {
+                if (overlays.player && !wasExpanded) {
+                    setIsSheetOpening(true);
+                }
+                return Boolean(overlays.player);
+            });
+            setQueueState((state) => (overlays.queue ? "open" : state === "open" ? "closing" : state));
+            setIsSourcesOpen(Boolean(overlays.sources));
+            if (!overlays.dialog) {
+                setTrackToAdd(null);
+                setNameModal(null);
+            }
         }
         window.addEventListener("popstate", handlePop);
         return () => window.removeEventListener("popstate", handlePop);
     }, []);
+
+    function selectMobileTab(tab: MobileTab) {
+        if (tab === "sources") {
+            if (!isSourcesOpen) {
+                applyOverlays({});
+                openOverlay("sources");
+            }
+            return;
+        }
+        applyOverlays({});
+        navigate({ page: tab, playlistId: null, query: "" });
+    }
+
+    const mobileTab: MobileTab = isSourcesOpen
+        ? "sources"
+        : page === "library" ? "library" : "home";
 
     function openPlaylist(id: string | null) {
         navigate({ page: "library", playlistId: id, query: "" });
@@ -244,21 +348,37 @@ function App() {
     }
 
     return (
-      <div className={player.isPlaying ? "app is-playing" : "app"}>
+      <div className={["app", player.isPlaying ? "is-playing" : "", isMobile ? "is-mobile" : "", isMobile && isPlayerExpanded ? "player-expanded" : ""].filter(Boolean).join(" ")}>
           <div className="content">
-              <Navbar
+              {!isMobile && <Navbar
                   playlists={playlists}
                   activePlaylistId={page === "library" ? openPlaylistId : null}
                   onOpenPlaylist={openPlaylist}
                   onCreatePlaylist={() => setNameModal({ mode: "create" })}
                   services={services}
-                  onOpenSources={() => setIsSourcesOpen(true)}
-                  page={page}
+                  onOpenSources={() => openOverlay("sources")}
+                  page={page === "library" ? "library" : "home"}
                   onNavigate={(newPage) => {
                       navigate({ page: newPage, playlistId: null, query: "" });
                   }}
-              />
-              {page === "library" && searchQuery === "" ? (
+              />}
+              {isMobile && isSourcesOpen ? (
+                  <main className="main">
+                      <Header
+                          user={user}
+                          services={services}
+                          onLogout={handleLogout}
+                          onSearch={(query) => {
+                              if (query !== "") {
+                                  setIsSourcesOpen(false);
+                                  setSearchQuery(query);
+                              }
+                          }}
+                          onServicesChange={setServices}
+                      />
+                      <SourcesModal services={services} onUpdate={setServices} onClose={() => closeOverlay("sources")} asPage/>
+                  </main>
+              ) : page === "library" && searchQuery === "" ? (
                   <LibraryPage
                       user={user}
                       services={services}
@@ -279,7 +399,7 @@ function App() {
                       onRenamePlaylist={(playlist) => setNameModal({ mode: "rename", playlist })}
                       onDeletePlaylist={handleDeletePlaylist}
                       onPlayTrack={player.playTrack}
-                      onOpenSources={() => setIsSourcesOpen(true)}
+                      onOpenSources={() => openOverlay("sources")}
                   />
               ) : (
               <MainPage
@@ -297,7 +417,7 @@ function App() {
                   onLogout={handleLogout}
                   searchQuery={searchQuery}
                   onSearch={setSearchQuery}
-                  onOpenSources={() => setIsSourcesOpen(true)}
+                  onOpenSources={() => openOverlay("sources")}
                   onServicesChange={setServices}
                   onFilesChange={setFiles}
                   onFileDeleted={handleFileDeleted}
@@ -311,15 +431,22 @@ function App() {
               player={player}
               services={services}
               isQueueOpen={isQueueOpen}
-              onToggleQueue={() => setQueueState((state) => (state === "open" ? "closing" : "open"))}
+              onToggleQueue={() => (isQueueOpen ? closeOverlay("queue") : openOverlay("queue"))}
+              isMobile={isMobile}
+              isExpanded={isPlayerExpanded || isSheetClosing}
+              isOpening={isSheetOpening}
+              isClosing={isSheetClosing}
+              onExpand={() => openOverlay("player")}
+              onCollapse={() => closeOverlay("player")}
           />
-          {queueState !== "closed" && <QueuePanel player={player} isClosing={queueState === "closing"} onClose={closeQueue}/>}
+          {isMobile && <MobileTabBar active={mobileTab} onSelect={selectMobileTab}/>}
+          {queueState !== "closed" && <QueuePanel player={player} isClosing={queueState === "closing"} onClose={() => closeOverlay("queue")}/>}
 
-          {isSourcesOpen && (
+          {isSourcesOpen && !isMobile && (
               <SourcesModal
                   services={services}
                   onUpdate={setServices}
-                  onClose={() => setIsSourcesOpen(false)}
+                  onClose={() => closeOverlay("sources")}
               />
           )}
 

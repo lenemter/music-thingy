@@ -19,6 +19,17 @@ function WaveOfDay({ wave, onPlayWave }: WaveOfDayProps) {
     return (
         <div className="hero-wrap">
             <section className="hero">
+                <svg className="hero-chain" viewBox="0 0 1500 520" preserveAspectRatio="xMaxYMid meet" aria-hidden="true">
+                    <g fill="none" stroke="#F7C744" strokeWidth="2.5">
+                        <circle cx="150" cy="260" r="190" opacity=".25"/>
+                        <circle cx="390" cy="260" r="190" opacity=".4"/>
+                        <circle cx="630" cy="260" r="190" opacity=".6"/>
+                        <circle cx="870" cy="260" r="190" opacity=".8"/>
+                        <circle cx="1110" cy="260" r="190"/>
+                        <circle cx="1350" cy="260" r="190"/>
+                    </g>
+                    <path d="M1230 40C1238 200 1270 250 1450 260C1270 270 1238 320 1230 480C1222 320 1190 270 1010 260C1190 250 1222 200 1230 40Z" fill="#F2B51C"/>
+                </svg>
                 <Grain/>
                 <img className="hero-art" src={heroArt} alt=""/>
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import Grain from "../entities/Grain.tsx";
 import Cover from "../entities/Cover.tsx";
+import MarqueeText from "../entities/MarqueeText.tsx";
 import { fallbackCover } from "../shared/coverTemplates.ts";
 import { formatTime } from "../shared/format.ts";
 import { setTrackLiked } from "../shared/favorites.ts";
@@ -31,6 +32,12 @@ type PlayerProps = {
     services: Service[]
     isQueueOpen: boolean
     onToggleQueue: () => void
+    isMobile?: boolean
+    isExpanded?: boolean
+    isOpening?: boolean
+    isClosing?: boolean
+    onExpand?: () => void
+    onCollapse?: () => void
 }
 
 function rangeStyle(value: number, max: number): CSSProperties {
@@ -38,7 +45,7 @@ function rangeStyle(value: number, max: number): CSSProperties {
     return { "--fill": percent + "%" } as CSSProperties;
 }
 
-function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerProps) {
+function Player({ track, player, services, isQueueOpen, onToggleQueue, isMobile = false, isExpanded = false, isOpening = false, isClosing = false, onExpand, onCollapse }: PlayerProps) {
     const [isLiked, setIsLiked] = useState(track.liked === true);
     const [dragTime, setDragTime] = useState<number | null>(null);
     const volumeBeforeMute = useRef(0.7);
@@ -215,6 +222,236 @@ function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerP
 
     const repeatTitle = player.repeat === "one" ? "Повтор трека включён" : "Повторять трек";
 
+    const likeButton = (
+        <button className="icon-button like-toggle" title={isLiked ? "Убрать из избранного" : "В избранное"} aria-pressed={isLiked} onClick={toggleLike}>
+            {isLiked ? <HeartFilledIcon width={35} height={35}/> : <HeartIcon width={35} height={35}/>}
+        </button>
+    );
+
+    const playButton = (
+        <button
+            className={player.isLoading ? "icon-button big play-button loading" : "icon-button big play-button"}
+            title={player.isPlaying ? "Пауза" : "Играть"}
+            aria-label={player.isPlaying ? "Пауза" : "Играть"}
+            onClick={player.togglePlay}
+        >
+            {player.isPlaying ? <PauseIcon width={22} height={22}/> : <PlayIcon width={22} height={22}/>}
+        </button>
+    );
+
+    const controls = (
+        <div className="player-controls">
+            <button
+                className={[
+                    "icon-button mode",
+                    player.isShuffle ? "active" : "",
+                    player.isEndless ? "mode-hidden" : "",
+                ].filter(Boolean).join(" ")}
+                title={player.isShuffle ? "Перемешивание включено" : "Перемешать"}
+                aria-hidden={player.isEndless}
+                tabIndex={player.isEndless ? -1 : undefined}
+                disabled={player.isEndless}
+                onClick={player.toggleShuffle}
+            >
+                <ShuffleIcon/>
+            </button>
+            <button className="icon-button" title="Предыдущий трек" aria-label="Предыдущий трек" onClick={player.prev}>
+                <PrevIcon width={22} height={22}/>
+            </button>
+            {playButton}
+            <button className="icon-button" title="Следующий трек" aria-label="Следующий трек" onClick={player.next} disabled={!player.hasNext}>
+                <NextIcon width={22} height={22}/>
+            </button>
+            <button
+                className={player.repeat !== "off" ? "icon-button mode active" : "icon-button mode"}
+                title={repeatTitle}
+                aria-pressed={player.repeat === "one"}
+                onClick={player.cycleRepeat}
+            >
+                <RepeatIcon/>
+            </button>
+        </div>
+    );
+
+    const progressTrack = (
+        <div className={["progress-track", fillAnimating ? "animating" : "", player.isLoading ? "is-loading" : ""].filter(Boolean).join(" ")}>
+            <span className="progress-rail"/>
+            <span className="progress-fill" style={{ left: fillLeft + "%", width: fillWidth + "%" }}/>
+            <span
+                className={player.duration === 0 ? "progress-thumb disabled" : "progress-thumb"}
+                style={{ "--pos": thumbRatio } as CSSProperties}
+            />
+            {trimDraft ? (
+                <div className={isTrimClosing ? "trim-range closing" : "trim-range"}>
+                    <input
+                        className="trim-position"
+                        type="range"
+                        min={0}
+                        max={player.duration}
+                        step={0.1}
+                        value={editTime}
+                        title={"Сейчас " + formatTime(Math.floor(editTime))}
+                        aria-label="Перемотка"
+                        onPointerDown={startDrag}
+                        onChange={(event) => handleProgressChange(Number(event.target.value))}
+                    />
+                    <input
+                        className="trim-handle"
+                        type="range"
+                        min={0}
+                        max={player.duration}
+                        step={0.1}
+                        value={trimDraft.start}
+                        aria-label="Начало обрезки"
+                        onPointerDown={holdWhileDragging}
+                        onChange={(event) => changeTrimStart(Number(event.target.value))}
+                    />
+                    <input
+                        className="trim-handle"
+                        type="range"
+                        min={0}
+                        max={player.duration}
+                        step={0.1}
+                        value={trimDraft.end}
+                        aria-label="Конец обрезки"
+                        onPointerDown={holdWhileDragging}
+                        onChange={(event) => changeTrimEnd(Number(event.target.value))}
+                    />
+                </div>
+            ) : (
+                <input
+                    className="range-input progress-input"
+                    type="range"
+                    min={0}
+                    max={pieceLength || 0}
+                    step={0.1}
+                    value={pieceTime}
+                    disabled={player.duration === 0}
+                    title="Перемотка"
+                    aria-label="Перемотка"
+                    onPointerDown={startDrag}
+                    onChange={(event) => handleProgressChange(Number(event.target.value) + pieceStart)}
+                />
+            )}
+        </div>
+    );
+
+    const progressRow = (
+        <div className="progress-row">
+            <span className="progress-time">{formatTime(Math.floor(isEditingTrim && trimDraft ? trimDraft.start : pieceTime))}</span>
+            {progressTrack}
+            <span className="progress-time">{formatTime(Math.floor(isEditingTrim && trimDraft ? trimDraft.end : pieceLength))}</span>
+            {trimDraft && (
+                <div className={isTrimClosing ? "trim-actions closing" : "trim-actions"}>
+                    <button className="trim-button" title="Отменить" aria-label="Отменить обрезку" onClick={closeTrim}>
+                        <CloseIcon width={16} height={16}/>
+                    </button>
+                    <button className="trim-button confirm" title="Сохранить обрезку" aria-label="Сохранить обрезку" onClick={confirmTrim}>
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M5 12.5l4.5 4.5L19 7.5"/>
+                        </svg>
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+
+    const errorLine = player.error && (
+        <span className="player-error">
+            {player.error}
+            {player.externalUrl && (
+                <a href={player.externalUrl} target="_blank" rel="noreferrer">ОТКРЫТЬ</a>
+            )}
+        </span>
+    );
+
+    const trimToggleClass = trimDraft || savedTrim ? "trim-toggle active" : "trim-toggle";
+    const toggleTrim = () => (trimDraft && !isTrimClosing ? closeTrim() : openTrim());
+
+    const miniRatio = pieceLength > 0 ? pieceTime / pieceLength : 0;
+    const miniPlayer = (
+        <footer className="mini-player" inert={isExpanded}>
+            <Grain/>
+            <button className="mini-player-open" aria-label={"Открыть плеер: " + track.title} onClick={onExpand}>
+                <Cover src={track.cover} size="row" fallback={fallbackCover(track.id)} onAccent/>
+                <span className="mini-player-info">
+                    <MarqueeText className="mini-player-title" text={track.title}/>
+                    <span className="mini-player-artist"><span className="mini-player-artist-name">{track.artist}</span><span className="player-badge" title={"Играет из " + sourceName}>{track.source}</span></span>
+                </span>
+            </button>
+            {likeButton}
+            {playButton}
+            <span className={player.isLoading ? "mini-player-progress is-loading" : "mini-player-progress"} aria-hidden="true">
+                <span style={{ width: miniRatio * 100 + "%" }}/>
+            </span>
+        </footer>
+    );
+
+    if (isMobile && !isExpanded) {
+        return miniPlayer;
+    }
+
+    if (isMobile) {
+        const queuePosition = player.isEndless
+            ? "ВОЛНА ДНЯ"
+            : player.queue.length > 1 ? "ОЧЕРЕДЬ · " + (player.index + 1) + " / " + player.queue.length : "СЕЙЧАС ИГРАЕТ";
+        return (
+            <>
+            {miniPlayer}
+            <div className={["player-sheet", trimDraft ? "trimming" : "", isOpening ? "opening" : "", isClosing ? "closing" : ""].filter(Boolean).join(" ")} role="dialog" aria-label="Плеер">
+                <header className="player-sheet-head">
+                    <button className="icon-button" aria-label="Свернуть плеер" onClick={onCollapse}>
+                        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M6 9l6 6 6-6"/>
+                        </svg>
+                    </button>
+                    <span className="player-sheet-label">{queuePosition}</span>
+                    <span className="player-sheet-spacer"/>
+                </header>
+
+                <a className="player-sheet-cover" href={track.externalUrl ?? "#"} target={track.externalUrl ? "_blank" : undefined} rel="noreferrer" aria-label={"Открыть «" + track.title + "» в сервисе"}>
+                    <Cover src={track.cover} size="card" fallback={fallbackCover(track.id)}/>
+                </a>
+
+                <div className="player-sheet-title">
+                    <div className="player-sheet-text">
+                        <h2><MarqueeText text={track.title}/></h2>
+                        <span>
+                            <span className="player-sheet-artist">{track.artist}</span>
+                            <span className="player-badge" title={"Играет из " + sourceName}>{track.source}</span>
+                            {track.edited && <span className="player-badge">С ПРАВКАМИ</span>}
+                            {savedTrim && <EditorIcon width={14} height={14} aria-label="Трек обрезан"/>}
+                        </span>
+                        {errorLine}
+                    </div>
+                    {likeButton}
+                </div>
+
+                <div className={isEditingTrim ? "player-sheet-progress trimming" : "player-sheet-progress"}>
+                    {progressRow}
+                </div>
+
+                {controls}
+
+                <div className="player-sheet-actions">
+                    <button className={trimToggleClass} aria-pressed={trimDraft !== null} onClick={toggleTrim}>
+                        <EditorIcon width={20} height={20}/>
+                        Обрезать
+                    </button>
+                    <button onClick={() => openAddToPlaylist(track)}>
+                        <PlusIcon width={20} height={20}/>
+                        В плейлист
+                    </button>
+                    <button className={isQueueOpen ? "active" : ""} aria-expanded={isQueueOpen} onClick={onToggleQueue}>
+                        <QueueIcon width={20} height={20}/>
+                        Очередь
+                    </button>
+                </div>
+            </div>
+            </>
+        )
+    }
+
     return (
         <footer className={trimDraft ? "player trimming" : "player"}>
             <Grain/>
@@ -224,16 +461,9 @@ function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerP
                     <Cover src={track.cover} size="now-playing" fallback={fallbackCover(track.id)} onAccent/>
                 </a>
                 <div className="player-info">
-                    <span className="player-title">{track.title}</span>
+                    <MarqueeText className="player-title" text={track.title}/>
                     <span className="player-artist">{track.artist}</span>
-                    {player.error ? (
-                        <span className="player-error">
-                            {player.error}
-                            {player.externalUrl && (
-                                <a href={player.externalUrl} target="_blank" rel="noreferrer">ОТКРЫТЬ</a>
-                            )}
-                        </span>
-                    ) : (
+                    {player.error ? errorLine : (
                         <span className="player-source">
                             <span className="player-badge" title={"Играет из " + sourceName}>{track.source}</span>
                             {track.edited && <span className="player-badge">С ПРАВКАМИ</span>}
@@ -249,137 +479,25 @@ function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerP
                         </span>
                     )}
                 </div>
-                <button className="icon-button" title={isLiked ? "Убрать из избранного" : "В избранное"} onClick={toggleLike}>
-                    {isLiked ? <HeartFilledIcon width={35} height={35}/> : <HeartIcon width={35} height={35}/>}
-                </button>
+                {likeButton}
                 <button className="icon-button" title="Добавить в плейлист" onClick={() => openAddToPlaylist(track)}>
                     <PlusIcon width={24} height={24}/>
                 </button>
             </div>
 
             <div className="player-center">
-                <div className="player-controls">
-                    <button
-                        className={[
-                            "icon-button mode",
-                            player.isShuffle ? "active" : "",
-                            player.isEndless ? "mode-hidden" : "",
-                        ].filter(Boolean).join(" ")}
-                        title={player.isShuffle ? "Перемешивание включено" : "Перемешать"}
-                        aria-hidden={player.isEndless}
-                        tabIndex={player.isEndless ? -1 : undefined}
-                        disabled={player.isEndless}
-                        onClick={player.toggleShuffle}
-                    >
-                        <ShuffleIcon/>
-                    </button>
-                    <button className="icon-button" title="Предыдущий трек" onClick={player.prev}>
-                        <PrevIcon width={22} height={22}/>
-                    </button>
-                    <button
-                        className={player.isLoading ? "icon-button big play-button loading" : "icon-button big play-button"}
-                        title={player.isPlaying ? "Пауза" : "Играть"}
-                        onClick={player.togglePlay}
-                    >
-                        {player.isPlaying ? <PauseIcon width={22} height={22}/> : <PlayIcon width={22} height={22}/>}
-                    </button>
-                    <button className="icon-button" title="Следующий трек" onClick={player.next} disabled={!player.hasNext}>
-                        <NextIcon width={22} height={22}/>
-                    </button>
-                    <button
-                        className={player.repeat !== "off" ? "icon-button mode active" : "icon-button mode"}
-                        title={repeatTitle}
-                        aria-pressed={player.repeat === "one"}
-                        onClick={player.cycleRepeat}
-                    >
-                        <RepeatIcon/>
-                    </button>
-                </div>
+                {controls}
 
-                <div className="progress-row">
-                    <span className="progress-time">{formatTime(Math.floor(isEditingTrim && trimDraft ? trimDraft.start : pieceTime))}</span>
-                    <div className={["progress-track", fillAnimating ? "animating" : "", player.isLoading ? "is-loading" : ""].filter(Boolean).join(" ")}>
-                        <span className="progress-rail"/>
-                        <span className="progress-fill" style={{ left: fillLeft + "%", width: fillWidth + "%" }}/>
-                        <span
-                            className={player.duration === 0 ? "progress-thumb disabled" : "progress-thumb"}
-                            style={{ "--pos": thumbRatio } as CSSProperties}
-                        />
-                        {trimDraft ? (
-                            <div className={isTrimClosing ? "trim-range closing" : "trim-range"}>
-                                <input
-                                    className="trim-position"
-                                    type="range"
-                                    min={0}
-                                    max={player.duration}
-                                    step={0.1}
-                                    value={editTime}
-                                    title={"Сейчас " + formatTime(Math.floor(editTime))}
-                                    aria-label="Перемотка"
-                                    onPointerDown={startDrag}
-                                    onChange={(event) => handleProgressChange(Number(event.target.value))}
-                                />
-                                <input
-                                    className="trim-handle"
-                                    type="range"
-                                    min={0}
-                                    max={player.duration}
-                                    step={0.1}
-                                    value={trimDraft.start}
-                                    aria-label="Начало обрезки"
-                                    onPointerDown={holdWhileDragging}
-                                    onChange={(event) => changeTrimStart(Number(event.target.value))}
-                                />
-                                <input
-                                    className="trim-handle"
-                                    type="range"
-                                    min={0}
-                                    max={player.duration}
-                                    step={0.1}
-                                    value={trimDraft.end}
-                                    aria-label="Конец обрезки"
-                                    onPointerDown={holdWhileDragging}
-                                    onChange={(event) => changeTrimEnd(Number(event.target.value))}
-                                />
-                            </div>
-                        ) : (
-                            <input
-                                className="range-input progress-input"
-                                type="range"
-                                min={0}
-                                max={pieceLength || 0}
-                                step={0.1}
-                                value={pieceTime}
-                                disabled={player.duration === 0}
-                                title="Перемотка"
-                                onPointerDown={startDrag}
-                                onChange={(event) => handleProgressChange(Number(event.target.value) + pieceStart)}
-                            />
-                        )}
-                    </div>
-                    <span className="progress-time">{formatTime(Math.floor(isEditingTrim && trimDraft ? trimDraft.end : pieceLength))}</span>
-                    {trimDraft && (
-                        <div className={isTrimClosing ? "trim-actions closing" : "trim-actions"}>
-                            <button className="trim-button" title="Отменить" aria-label="Отменить обрезку" onClick={closeTrim}>
-                                <CloseIcon width={16} height={16}/>
-                            </button>
-                            <button className="trim-button confirm" title="Сохранить обрезку" aria-label="Сохранить обрезку" onClick={confirmTrim}>
-                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <path d="M5 12.5l4.5 4.5L19 7.5"/>
-                                </svg>
-                            </button>
-                        </div>
-                    )}
-                </div>
+                {progressRow}
 
             </div>
 
             <div className="player-right">
                 <button
-                    className={trimDraft || savedTrim ? "icon-button trim-toggle active" : "icon-button trim-toggle"}
+                    className={"icon-button " + trimToggleClass}
                     title={trimDraft ? "Отменить редактирование" : "Обрезать трек"}
                     aria-pressed={trimDraft !== null}
-                    onClick={() => (trimDraft && !isTrimClosing ? closeTrim() : openTrim())}
+                    onClick={toggleTrim}
                 >
                     <EditorIcon/>
                 </button>
