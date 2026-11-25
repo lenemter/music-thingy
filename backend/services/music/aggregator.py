@@ -178,6 +178,7 @@ class MusicAggregator:
         # If no specific services requested, try all supported services
         if not services:
             services = [Service.YANDEX, Service.YOUTUBE, Service.VK, Service.SPOTIFY, Service.SOUNDCLOUD]
+            services += [s for s in (user_adapters or {}) if s not in services]
 
         # Resolve requested services
         target_services: list[Service] = []

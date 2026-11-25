@@ -21,6 +21,7 @@ class Service(str, Enum):
     SPOTIFY = "spotify"
     YANDEX = "yandex"
     VK = "vk"
+    LOCAL = "local"
 
 
 SERVICE_CODE_MAP: dict[Service, str] = {
@@ -29,6 +30,7 @@ SERVICE_CODE_MAP: dict[Service, str] = {
     Service.SOUNDCLOUD: "SC",
     Service.YOUTUBE: "YT",
     Service.VK: "VK",
+    Service.LOCAL: "ФАЙЛ",
 }
 
 SERVICE_NAME_MAP: dict[Service, str] = {
@@ -37,6 +39,7 @@ SERVICE_NAME_MAP: dict[Service, str] = {
     Service.SOUNDCLOUD: "SoundCloud",
     Service.YOUTUBE: "YouTube",
     Service.VK: "VK Музыка",
+    Service.LOCAL: "Локальные файлы",
 }
 
 CODE_TO_SERVICE_MAP: dict[str, Service] = {
@@ -51,6 +54,8 @@ CODE_TO_SERVICE_MAP: dict[str, Service] = {
     "youtube": Service.YOUTUBE,
     "vk": Service.VK,
     "вк": Service.VK,
+    "ФАЙЛ": Service.LOCAL,
+    "local": Service.LOCAL,
 }
 
 
