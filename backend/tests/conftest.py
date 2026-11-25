@@ -1,8 +1,11 @@
+import contextlib
 import os
 from collections.abc import Generator
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -16,6 +19,7 @@ from app.main import app
 test_engine = create_async_engine(
     f"sqlite+aiosqlite:///{TEST_DB_FILE}",
     connect_args={"check_same_thread": False},
+    poolclass=NullPool,
 )
 
 TestAsyncSessionLocal = async_sessionmaker(
@@ -48,11 +52,10 @@ def setup_and_teardown_db():
 
     asyncio.run(_init_tables())
     yield
+    asyncio.run(test_engine.dispose())
     if os.path.exists(TEST_DB_FILE):
-        try:
+        with contextlib.suppress(OSError):
             os.remove(TEST_DB_FILE)
-        except OSError:
-            pass
 
 
 @pytest.fixture
