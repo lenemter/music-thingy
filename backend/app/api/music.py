@@ -41,6 +41,7 @@ from services.music.dto import (
     SearchType,
     Service,
 )
+from services.music.local import LocalFilesAdapter, LocalUpload
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,22 @@ async def get_user_adapter(
     if not acc or not acc.is_active or not (acc.token or acc.extra_data):
         return None
     return aggregator.create_user_adapter(s_enum, token=acc.token, extra_data=acc.extra_data)
+
+
+async def get_local_adapter(db: AsyncSession, user: User | None) -> LocalFilesAdapter | None:
+    if not user or not user.id:
+        return None
+    res = await db.exec(select(UserUpload).where(UserUpload.user_id == user.id))
+    items = []
+    for u in res.all():
+        sig = create_stream_signature(u.id or 0, u.user_id)
+        cover = u.cover_template or (f"/api/uploads/{u.id}/cover" if u.cover_file else None)
+        items.append(LocalUpload(
+            id=u.id or 0, title=u.title, artist=u.artist,
+            duration_seconds=u.duration_seconds,
+            audio_url=f"/api/uploads/{u.id}/stream?sig={sig}", cover=cover,
+        ))
+    return LocalFilesAdapter(items) if items else None
 
 
 @router.get("/services", response_model=list[ServiceStatusRead])
@@ -136,6 +153,12 @@ async def search_music(
                 search_types.add(SearchType.PLAYLIST)
     if not search_types:
         search_types = {SearchType.TRACK}
+
+    local_adapter = await get_local_adapter(db, current_user)
+    if local_adapter:
+        user_adapters[Service.LOCAL] = local_adapter
+        if target_services and not services:
+            target_services.append("local")
 
     # Query music services via aggregator
     agg_result = await aggregator.search(
