@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from pydantic import EmailStr
 from sqlalchemy import Column, DateTime, func
 from sqlmodel import Field, SQLModel
@@ -25,7 +26,7 @@ class User(UserBase, table=True):
     hashed_password: str = Field(max_length=255, nullable=False)
     is_active: bool = Field(default=True, nullable=False)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column=Column(
             DateTime(timezone=True),
             server_default=func.now(),
@@ -33,7 +34,7 @@ class User(UserBase, table=True):
         ),
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column=Column(
             DateTime(timezone=True),
             server_default=func.now(),

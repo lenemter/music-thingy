@@ -19,19 +19,19 @@ from services.music.vk import (
 
 
 def make_song(**kw):
-    data = dict(
-        track_id=111, owner_id=222, title="Song", artist="Artist",
-        url="https://cdn.test/a.mp3", duration=180,
-    )
+    data = {
+        "track_id": 111, "owner_id": 222, "title": "Song", "artist": "Artist",
+        "url": "https://cdn.test/a.mp3", "duration": 180,
+    }
     data.update(kw)
     return SimpleNamespace(**data)
 
 
 def make_playlist(**kw):
-    data = dict(
-        owner_id=1, playlist_id=2, title="My PL", description="desc",
-        count=1, photo="https://cdn.test/p.jpg", access_key=None,
-    )
+    data = {
+        "owner_id": 1, "playlist_id": 2, "title": "My PL", "description": "desc",
+        "count": 1, "photo": "https://cdn.test/p.jpg", "access_key": None,
+    }
     data.update(kw)
     return SimpleNamespace(**data)
 
@@ -63,32 +63,27 @@ def test_audio_ref():
 
 
 def test_translate_errors_maps_exceptions():
-    with pytest.raises(AdapterError) as exc:
-        with _translate_errors():
-            raise Timeout("slow")
+    with pytest.raises(AdapterError) as exc, _translate_errors():
+        raise Timeout("slow")
     assert exc.value.kind == ErrorKind.TIMEOUT
 
-    with pytest.raises(AdapterError) as exc:
-        with _translate_errors():
-            raise RequestException("net")
+    with pytest.raises(AdapterError) as exc, _translate_errors():
+        raise RequestException("net")
     assert exc.value.kind == ErrorKind.UNAVAILABLE
 
-    with pytest.raises(AdapterError) as exc:
-        with _translate_errors():
-            raise OSError("disk")
+    with pytest.raises(AdapterError) as exc, _translate_errors():
+        raise OSError("disk")
     assert exc.value.kind == ErrorKind.UNAVAILABLE
 
-    with pytest.raises(AdapterError) as exc:
-        with _translate_errors():
-            raise KeyError("x")
+    with pytest.raises(AdapterError) as exc, _translate_errors():
+        raise KeyError("x")
     assert exc.value.kind == ErrorKind.UNKNOWN
 
 
 def test_translate_errors_passes_adapter_error_through():
     original = AdapterError(ErrorKind.AUTH_FAILED, "no", 401)
-    with pytest.raises(AdapterError) as exc:
-        with _translate_errors():
-            raise original
+    with pytest.raises(AdapterError) as exc, _translate_errors():
+        raise original
     assert exc.value is original
 
 
@@ -337,9 +332,11 @@ def test_save_mp3_downloads_and_caches(adapter, vk, tmp_path):
 def test_save_mp3_http_error(adapter, vk, tmp_path):
     vk.get_songs_by_id.return_value = [make_song()]
     response = SimpleNamespace(status_code=403, content=b"")
-    with patch("services.music.vk.curl_requests.get", return_value=response):
-        with pytest.raises(AdapterError) as exc:
-            adapter.save_mp3("222_111", tmp_path)
+    with (
+        patch("services.music.vk.curl_requests.get", return_value=response),
+        pytest.raises(AdapterError) as exc,
+    ):
+        adapter.save_mp3("222_111", tmp_path)
     assert exc.value.kind == ErrorKind.UNAVAILABLE
     assert not (tmp_path / "222_111.mp3").exists()
 

@@ -1,5 +1,7 @@
 from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import ValidationError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -54,7 +56,7 @@ async def _authenticate_and_create_tokens(identifier: str, password: str, db: As
 @router.post("/register/", response_model=UserRead, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def register(
     user_in: UserCreate,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     email_clean = user_in.email.strip().lower()
     statement = select(User).where(User.email == email_clean)
@@ -83,7 +85,7 @@ async def register(
 @router.post("/login/", response_model=Token, include_in_schema=False)
 async def login(
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Token:
     content_type = request.headers.get("content-type", "")
 
@@ -96,10 +98,10 @@ async def login(
             login_req = LoginRequest(**body)
             identifier = login_req.get_identifier()
             password = login_req.password
-        except Exception as e:
+        except (ValueError, TypeError, KeyError, ValidationError) as e:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Invalid request body: {str(e)}",
+                detail=f"Invalid request body: {e!s}",
             )
     else:
         form = await request.form()
@@ -121,7 +123,7 @@ async def login(
 @router.post("/token/refresh/", response_model=Token, include_in_schema=False)
 async def refresh_token(
     refresh_req: RefreshTokenRequest,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Token:
     token_str = refresh_req.get_token()
     payload = decode_token(token_str)

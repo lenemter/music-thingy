@@ -1,6 +1,8 @@
+import contextlib
 import logging
 import sys
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -10,10 +12,8 @@ if sys.platform == "win32":
     import warnings
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
-        try:
+        with contextlib.suppress(AttributeError):
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        except Exception:
-            pass
 
 from app.api.auth import router as auth_router
 from app.api.music import router as music_router
@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     try:
         await init_db()
         logger.info("Database tables initialized successfully.")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning("Could not initialize database on startup: %s", e)
     yield
     await close_db()

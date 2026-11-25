@@ -84,7 +84,7 @@ def _direct_audio_url(track: Any) -> str | None:
     """Прямая ссылка на mp3 с максимальным битрейтом."""
     try:
         infos = track.get_download_info(get_direct_links=True)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         log.warning("Не удалось получить прямую ссылку для трека %s: %s", getattr(track, "id", None), e)
         return None
     mp3 = [i for i in infos or [] if getattr(i, "codec", None) == "mp3" and getattr(i, "direct_link", None)]
@@ -322,7 +322,7 @@ class YandexMusicAdapter(BaseMusicAdapter):
             return None
         try:
             return cls(token=token)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.warning("Failed to initialize user Yandex adapter: %s", e)
             return None
 
@@ -335,7 +335,7 @@ class YandexMusicAdapter(BaseMusicAdapter):
             try:
                 pls = self._client.users_playlists_list() or []
                 return [p_dto for p in pls if (p_dto := _to_playlist(p)) is not None][:limit]
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 log.warning("Failed to fetch Yandex playlists: %s", e)
                 return []
 
@@ -351,7 +351,7 @@ class YandexMusicAdapter(BaseMusicAdapter):
                     return []
                 tracks = likes.fetch_tracks() or []
                 return [t_dto for t in tracks if (t_dto := _to_track(t)) is not None][:limit]
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 log.warning("Failed to fetch Yandex favorites: %s", e)
                 return []
 
@@ -368,6 +368,6 @@ class YandexMusicAdapter(BaseMusicAdapter):
                 else:
                     self._client.users_likes_tracks_remove(track_ids=[actual_id])
                 return True
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 log.warning("Failed to sync Yandex like: %s", e)
                 return False

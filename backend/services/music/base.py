@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import ClassVar, Self
+
 from .dto import (
     AlbumDTO,
     ArtistDTO,

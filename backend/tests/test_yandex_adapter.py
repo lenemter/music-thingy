@@ -1,5 +1,13 @@
 from unittest.mock import MagicMock, patch
+
 import pytest
+from yandex_music.exceptions import (
+    BadRequestError,
+    NotFoundError,
+    TimedOutError,
+    UnauthorizedError,
+    YandexMusicError,
+)
 
 from services.music.base import AdapterError
 from services.music.dto import ErrorKind, SearchType, Service
@@ -11,13 +19,6 @@ from services.music.yandex import (
     _to_playlist,
     _to_track,
     _translate_errors,
-)
-from yandex_music.exceptions import (
-    BadRequestError,
-    NotFoundError,
-    TimedOutError,
-    UnauthorizedError,
-    YandexMusicError,
 )
 
 
@@ -38,31 +39,26 @@ def test_cover_url():
 
 
 def test_translate_errors():
-    with pytest.raises(AdapterError) as exc_info:
-        with _translate_errors():
-            raise UnauthorizedError("Invalid token")
+    with pytest.raises(AdapterError) as exc_info, _translate_errors():
+        raise UnauthorizedError("Invalid token")
     assert exc_info.value.kind == ErrorKind.AUTH_FAILED
     assert exc_info.value.status_code == 401
 
-    with pytest.raises(AdapterError) as exc_info:
-        with _translate_errors():
-            raise TimedOutError()
+    with pytest.raises(AdapterError) as exc_info, _translate_errors():
+        raise TimedOutError()
     assert exc_info.value.kind == ErrorKind.TIMEOUT
 
-    with pytest.raises(AdapterError) as exc_info:
-        with _translate_errors():
-            raise NotFoundError("Track not found")
+    with pytest.raises(AdapterError) as exc_info, _translate_errors():
+        raise NotFoundError("Track not found")
     assert exc_info.value.kind == ErrorKind.UNAVAILABLE
     assert exc_info.value.status_code == 404
 
-    with pytest.raises(AdapterError) as exc_info:
-        with _translate_errors():
-            raise BadRequestError("Bad request")
+    with pytest.raises(AdapterError) as exc_info, _translate_errors():
+        raise BadRequestError("Bad request")
     assert exc_info.value.kind == ErrorKind.UNKNOWN
 
-    with pytest.raises(AdapterError) as exc_info:
-        with _translate_errors():
-            raise YandexMusicError("Generic error")
+    with pytest.raises(AdapterError) as exc_info, _translate_errors():
+        raise YandexMusicError("Generic error")
     assert exc_info.value.kind == ErrorKind.UNKNOWN
 
 

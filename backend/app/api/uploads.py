@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import mimetypes
 import os
@@ -25,7 +27,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import (
     get_current_active_user,
-    get_current_user,
     get_optional_current_user,
 )
 from app.config import settings
@@ -39,7 +40,7 @@ from app.core.streaming import (
 from app.database import get_db
 from app.models.upload import UserUpload
 from app.models.user import User
-from app.schemas.upload import CoverUpdateRequest, TrackEditRequest, UserFileRead
+from app.schemas.upload import TrackEditRequest, UserFileRead
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ def _upload_to_user_file_read(u: UserUpload) -> UserFileRead:
 @router.get("", response_model=list[UserFileRead])
 async def list_uploads(
     current_user: Annotated[User, Depends(get_current_active_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[UserFileRead]:
     """List uploaded audio files for the current user, newest first."""
     assert current_user.id is not None
@@ -106,10 +107,10 @@ async def list_uploads(
 async def upload_audio_file(
     request: Request,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    file: UploadFile = File(...),
+    file: Annotated[UploadFile, File(...)],
+    db: Annotated[AsyncSession, Depends(get_db)],
     title: str | None = Form(None),
     artist: str | None = Form(None),
-    db: AsyncSession = Depends(get_db),
 ) -> UserFileRead:
     """Upload a new audio file (MP3, WAV, FLAC, OGG, M4A, AAC; max 50 MB) with optional metadata and cover."""
     assert current_user.id is not None
@@ -137,8 +138,7 @@ async def upload_audio_file(
     unique_filename = f"{current_user.id}_{uuid.uuid4().hex[:12]}{ext}"
     dest_path = upload_dir / unique_filename
 
-    with open(dest_path, "wb") as f:
-        f.write(contents)
+    await asyncio.to_thread(dest_path.write_bytes, contents)
 
     # Extract metadata via Mutagen
     meta = extract_audio_metadata(dest_path)
@@ -169,8 +169,7 @@ async def upload_audio_file(
             cover_file_name = f"{current_user.id}_{uuid.uuid4().hex[:12]}{img_ext}"
             img_dest = _get_covers_dir() / cover_file_name
             img_bytes = await cover_item.read()
-            with open(img_dest, "wb") as f_img:
-                f_img.write(img_bytes)
+            await asyncio.to_thread(img_dest.write_bytes, img_bytes)
     elif isinstance(cover_item, str) and cover_item.strip():
         cover_val = cover_item.strip()
         if cover_val.startswith("template:"):
@@ -180,8 +179,7 @@ async def upload_audio_file(
         c_ext = ext_map.get(meta.cover_mime or "", ".jpg")
         cover_file_name = f"{current_user.id}_{uuid.uuid4().hex[:12]}{c_ext}"
         img_dest = _get_covers_dir() / cover_file_name
-        with open(img_dest, "wb") as f_img:
-            f_img.write(meta.cover_bytes)
+        await asyncio.to_thread(img_dest.write_bytes, meta.cover_bytes)
 
     user_upload = UserUpload(
         user_id=current_user.id,
@@ -207,7 +205,7 @@ async def upload_audio_file(
 async def get_upload(
     upload_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserFileRead:
     """Get metadata for a specific uploaded track."""
     assert current_user.id is not None
@@ -230,7 +228,7 @@ async def edit_upload(
     upload_id: int,
     req: TrackEditRequest,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserFileRead:
     """Edit title and artist of an uploaded track."""
     assert current_user.id is not None
@@ -267,7 +265,7 @@ async def update_upload_cover(
     upload_id: int,
     request: Request,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserFileRead:
     """Set or replace the cover image or cover template for an uploaded track."""
     assert current_user.id is not None
@@ -290,7 +288,7 @@ async def update_upload_cover(
         try:
             body = await request.json()
             cover_val = str(body.get("cover", "")).strip()
-        except Exception:
+        except (ValueError, TypeError):
             cover_val = ""
 
         if cover_val.startswith("template:"):
@@ -342,8 +340,7 @@ async def update_upload_cover(
         new_cover_name = f"{current_user.id}_{uuid.uuid4().hex[:12]}{img_ext}"
         img_dest = _get_covers_dir() / new_cover_name
         img_bytes = await file_item.read()
-        with open(img_dest, "wb") as f_img:
-            f_img.write(img_bytes)
+        await asyncio.to_thread(img_dest.write_bytes, img_bytes)
 
         upload.cover_file = new_cover_name
         upload.cover_template = None
@@ -381,7 +378,7 @@ async def update_upload_cover(
 async def delete_upload_cover(
     upload_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserFileRead:
     """Remove cover image or template from an uploaded track."""
     assert current_user.id is not None
@@ -419,7 +416,7 @@ async def delete_upload_cover(
 async def delete_upload(
     upload_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Response:
     """Delete an uploaded track and its files from disk and database."""
     assert current_user.id is not None
@@ -461,11 +458,11 @@ async def delete_upload(
 async def stream_upload_audio(
     upload_id: int,
     request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
     sig: str | None = Query(None, description="HMAC stream signature for unauthenticated HTML5 audio playback"),
     token: str | None = Query(None, description="Optional JWT access token via query string"),
     access_token_cookie: str | None = Cookie(None, alias="access_token"),
     current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
-    db: AsyncSession = Depends(get_db),
 ):
     """Streams audio file with HTTP Range (206 Partial Content) support.
 
@@ -497,21 +494,17 @@ async def stream_upload_audio(
 
     # 3. Query token check
     if not authorized and token:
-        try:
+        with contextlib.suppress(HTTPException, ValueError, TypeError):
             payload = decode_token(token)
             if payload.get("type") == "access" and int(payload.get("sub", 0)) == upload.user_id:
                 authorized = True
-        except Exception:
-            pass
 
     # 4. Cookie check
     if not authorized and access_token_cookie:
-        try:
+        with contextlib.suppress(HTTPException, ValueError, TypeError):
             payload = decode_token(access_token_cookie)
             if payload.get("type") == "access" and int(payload.get("sub", 0)) == upload.user_id:
                 authorized = True
-        except Exception:
-            pass
 
     if not authorized:
         raise HTTPException(
@@ -536,7 +529,7 @@ async def stream_upload_audio(
 @router.get("/{upload_id}/cover")
 async def get_upload_cover(
     upload_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> FileResponse:
     """Serve the cover image for an uploaded track."""
     stmt = select(UserUpload).where(UserUpload.id == upload_id)

@@ -1,5 +1,6 @@
 from datetime import datetime
-from sqlmodel import Field, SQLModel
+
+from sqlmodel import Field
 
 from app.models.user import UserBase
 

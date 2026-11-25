@@ -15,15 +15,24 @@ import os
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar
 
 from ytmusicapi import LikeStatus, OAuthCredentials, YTMusic
 from ytmusicapi.exceptions import YTMusicError
 
 from .base import AdapterError, BaseMusicAdapter
+from .dto import (
+    ArtistDTO,
+    ErrorKind,
+    PlaybackDTO,
+    PlaybackKind,
+    PlaylistDTO,
+    SearchResultDTO,
+    SearchType,
+    Service,
+    TrackDTO,
+)
 from .youtube_data_api import YouTubeDataApi
-from .dto import (ArtistDTO, ErrorKind, PlaybackDTO, PlaybackKind,
-                  PlaylistDTO, SearchResultDTO, SearchType, Service, TrackDTO)
 
 log = logging.getLogger(__name__)
 
@@ -334,7 +343,7 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
                 playlist = self._data_api.playlist(pid, limit=self._playlist_limit)
                 if playlist is not None:
                     return playlist
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 log.warning("YouTube Data API playlist failed, falling back to public API: %s", e)
         try:
             with _translate_errors():
@@ -360,12 +369,12 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
             if token:
                 try:
                     auth_val = json.loads(token)
-                except Exception:
+                except (ValueError, TypeError):
                     auth_val = token
             elif extra_data:
                 try:
                     auth_val = json.loads(extra_data)
-                except Exception:
+                except (ValueError, TypeError):
                     auth_val = extra_data
             if isinstance(auth_val, dict) and "refresh_token" in auth_val:
                 client_id = os.environ.get("YOUTUBE_CLIENT_ID")
@@ -377,7 +386,7 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
                 adapter._data_api = YouTubeDataApi(auth_val, client_id, client_secret)
                 return adapter
             return cls(auth=auth_val)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.warning("Failed to initialize user YouTube adapter: %s", e)
             return None
 
@@ -389,14 +398,14 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
         if self._data_api is not None:
             try:
                 return self._data_api.user_playlists(limit=None)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 log.warning("Failed to fetch YouTube playlists via Data API: %s", e)
                 return []
         with _translate_errors():
             try:
                 items = self._yt.get_library_playlists(limit=limit) or []
                 return [p_dto for i in items if (p_dto := _to_playlist(i)) is not None]
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 log.warning("Failed to fetch YouTube playlists: %s", e)
                 return []
 
@@ -408,7 +417,7 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
         if self._data_api is not None:
             try:
                 return self._data_api.liked_tracks(limit=limit)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 log.warning("Failed to fetch YouTube favorites via Data API: %s", e)
                 return []
         with _translate_errors():
@@ -416,7 +425,7 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
                 liked = self._yt.get_liked_songs(limit=limit) or {}
                 items = liked.get("tracks") or []
                 return [t_dto for i in items if (t_dto := _to_track(i)) is not None][:limit]
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 log.warning("Failed to fetch YouTube favorites: %s", e)
                 return []
 
@@ -430,6 +439,6 @@ class YouTubeMusicAdapter(BaseMusicAdapter):
                 rating = LikeStatus.LIKE if liked else LikeStatus.INDIFFERENT
                 self._yt.rate_song(service_id, rating=rating)
                 return True
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 log.warning("Failed to sync YouTube like: %s", e)
                 return False

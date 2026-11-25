@@ -9,6 +9,7 @@ from __future__ import annotations
 
 Токен и user agent: vkpymusic.TokenReceiver (логин/пароль, SMS, captcha).
 """
+import contextlib
 import json
 import logging
 import re
@@ -26,8 +27,16 @@ from vkpymusic.utils import download_m3u8_as_mp3_pyav
 from vkpymusic.vk_api import VkApiException
 
 from .base import AdapterError, BaseMusicAdapter
-from .dto import (ArtistDTO, ErrorKind, PlaylistDTO, SearchResultDTO,
-                  SearchType, Service, ServiceErrorDTO, TrackDTO)
+from .dto import (
+    ArtistDTO,
+    ErrorKind,
+    PlaylistDTO,
+    SearchResultDTO,
+    SearchType,
+    Service,
+    ServiceErrorDTO,
+    TrackDTO,
+)
 
 log = logging.getLogger(__name__)
 
@@ -149,7 +158,7 @@ class VkMusicAdapter(BaseMusicAdapter):
 
     @classmethod
     def from_config(cls, filename: str = "config_vk.ini", *, validate_token: bool = False,
-                    min_interval: float = 0.35, playlist_limit: int | None = 200) -> "VkMusicAdapter":
+                    min_interval: float = 0.35, playlist_limit: int | None = 200) -> VkMusicAdapter:
         """Создаёт адаптер из конфига, сохранённого TokenReceiver.save_to_config()."""
         vk = VkService.parse_config(filename)
         if vk is None:
@@ -337,15 +346,13 @@ class VkMusicAdapter(BaseMusicAdapter):
         from app.config import settings
         ua = settings.VK_DEFAULT_USER_AGENT
         if extra_data:
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 parsed = json.loads(extra_data)
                 if isinstance(parsed, dict) and "user_agent" in parsed:
                     ua = parsed["user_agent"]
-            except Exception:
-                pass
         try:
             return cls(token=token, user_agent=ua)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.warning("Failed to initialize user VK adapter: %s", e)
             return None
 
@@ -360,7 +367,7 @@ class VkMusicAdapter(BaseMusicAdapter):
                 return []
             batch = self._vk.get_playlists_by_userid(owner_id, count=limit) or []
             return [p_dto for p in batch if (p_dto := _to_playlist(p)) is not None]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.warning("Failed to fetch VK playlists: %s", e)
             return []
 
@@ -375,7 +382,7 @@ class VkMusicAdapter(BaseMusicAdapter):
                 return []
             songs = self._vk.get_songs_by_userid(owner_id, count=limit) or []
             return [t_dto for s in songs if (t_dto := _to_track(s, with_url=True)) is not None]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.warning("Failed to fetch VK favorites: %s", e)
             return []
 
@@ -400,6 +407,6 @@ class VkMusicAdapter(BaseMusicAdapter):
             self._vk.fill_user_agent_and_token(req)
             make_request(req)
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.warning("Failed to sync VK like: %s", e)
             return False
