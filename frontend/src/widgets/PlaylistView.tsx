@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import TrackRow from "../entities/TrackRow.tsx";
+import { TrackListSkeleton } from "../entities/Skeleton.tsx";
 import PlaylistCover from "../entities/PlaylistCover.tsx";
 import { fetchServicePlaylist } from "../shared/api.ts";
 import { trackFromRead } from "../shared/music/convert.ts";
@@ -23,12 +24,11 @@ type PlaylistViewProps = {
 }
 
 const kindLabels = {
-    liked: "СОБИРАЕТСЯ САМ",
+    liked: "АВТО ПЛЕЙЛИСТ",
     user: "ВАШ ПЛЕЙЛИСТ",
-    service: "ИЗ СЕРВИСА",
+    service: "ПЛЕЙЛИСТ ИЗ СЕРВИСА",
 };
 
-// Треки, с которых сняли лайк, остаются на своих местах, пока пользователь не выйдет из плейлиста.
 function keepRemoved(shown: Track[], current: Track[]) {
     const currentByKey = new Map(current.map((track) => [getTrackKey(track), track]));
     const shownKeys = new Set(shown.map(getTrackKey));
@@ -46,7 +46,6 @@ function PlaylistView(props: PlaylistViewProps) {
     }
     const [loadedTracks, setLoadedTracks] = useState<Track[] | null>(null);
     const needsLoading = playlist.tracks === null && !playlist.unavailable;
-    // Компонент пересоздаётся для каждого плейлиста (key), поэтому начальное состояние задаём сразу.
     const [isLoading, setIsLoading] = useState(needsLoading);
     const [error, setError] = useState("");
     const [likedShown, setLikedShown] = useState<Track[]>(playlist.tracks ?? []);
@@ -104,7 +103,7 @@ function PlaylistView(props: PlaylistViewProps) {
                     <PlaylistCover key={playlist.id} playlist={playlist} size="card"/>
                 </div>
                 <div className="playlist-hero-info">
-                    <span className="label">ПЛЕЙЛИСТ · {kindLabels[playlist.kind]}</span>
+                    <span className="label">{kindLabels[playlist.kind]}</span>
                     <h1 className="library-title">{playlist.name}</h1>
                     <span className="mono">{playlist.unavailable ? playlist.subtitle : meta.join(" · ")}</span>
                     <div className="playlist-actions">
@@ -131,7 +130,7 @@ function PlaylistView(props: PlaylistViewProps) {
                 </div>
             </div>
 
-            {isLoading && <p className="search-note">Загружаем треки…</p>}
+            {isLoading && <TrackListSkeleton count={Math.min(Math.max(playlist.tracksCount || 6, 3), 8)}/>}
             {error && <p className="auth-error">{error}</p>}
 
             {!isLoading && !error && !playlist.unavailable && tracks.length === 0 && (

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import Cover from "./Cover.tsx";
+import { fallbackCover } from "../shared/coverTemplates.ts";
 import { formatTime } from "../shared/format.ts";
+import { playedDuration } from "../shared/player/trims.ts";
 import type { Service, Track } from "../shared/types.ts";
 import { getServiceName } from "../shared/music/services.ts";
 import { setTrackLiked } from "../shared/favorites.ts";
@@ -42,7 +44,7 @@ function TrackRow({ track, number, isPlaying, services, onPlay, onRemove, onUnav
                 <span className="track-number">{number < 10 ? "0" + number : number}</span>
             )}
 
-            <Cover src={track.cover} size="row"/>
+            <Cover src={track.cover} size="row" fallback={fallbackCover(track.id)}/>
 
             <span className="track-info">
                 <span className="track-title">{track.title}</span>
@@ -68,7 +70,7 @@ function TrackRow({ track, number, isPlaying, services, onPlay, onRemove, onUnav
                 ))}
             </span>
 
-            <span className="mono track-time">{formatTime(track.duration)}</span>
+            <span className="mono track-time">{formatTime(playedDuration(track, track.duration))}</span>
 
             <button
                 className="icon-button"

@@ -2,7 +2,6 @@ import type { Track } from "./types.ts";
 import { loadUser } from "./api.ts";
 import { getTrackKey } from "./favorites.ts";
 
-// История прослушиваний и запусков плейлистов — пока в браузере, отдельно для каждого пользователя.
 type HistoryEntry = {
     key: string
     track: Track
@@ -50,7 +49,6 @@ export function getHistory(): Track[] {
 }
 
 export function addToHistory(track: Track) {
-    // Демо-треки без сервиса в историю не попадают
     if (!track.service || !track.serviceId) {
         return;
     }

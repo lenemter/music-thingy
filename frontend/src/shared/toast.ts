@@ -1,4 +1,3 @@
-// Короткие всплывающие сообщения внизу экрана: showToast("...")
 export type ToastMessage = {
     id: number
     text: string

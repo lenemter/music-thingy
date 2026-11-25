@@ -255,7 +255,6 @@ body {
   flex-grow: 1;
   min-width: 0;
   overflow-y: auto;
-  /* место под полосу прокрутки резервируется всегда — вёрстка не прыгает, когда страница становится короче или длиннее */
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--hover) transparent;
@@ -618,7 +617,6 @@ body {
   flex: none;
   display: flex;
   gap: 24px;
-  /* фиксированная высота: блок не меняет размер, когда меняется описание или число треков */
   height: 420px;
   padding: 36px 36px 36px 40px;
   box-sizing: border-box;
@@ -631,7 +629,6 @@ body {
   opacity: .35;
 }
 
-/* Бейдж и заголовок всегда на своих местах сверху, кнопки прижаты к низу — длина описания ничего не сдвигает */
 .hero-info {
   position: relative;
   flex-grow: 1;
@@ -755,7 +752,6 @@ body {
   font-size: 13px;
 }
 
-/* auto-fill оставляет пустые колонки, поэтому одна-две карточки не растягиваются на всю ширину */
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
@@ -1015,6 +1011,13 @@ body {
   color: var(--accent);
 }
 
+.player-badge-icon {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  padding: 0 4px;
+}
+
 .player-center {
   position: relative;
   min-width: 0;
@@ -1043,6 +1046,8 @@ body {
 }
 
 .progress-row {
+  position: relative;
+  height: 18px;
   width: 100%;
   max-width: 600px;
   display: flex;
@@ -1246,7 +1251,6 @@ body {
   transition: border-color .3s;
 }
 
-/* Автозаполнение браузера (сохранённые почта и пароль) красит поле в светлый — возвращаем наш тёмный стиль */
 .auth-field input:-webkit-autofill,
 .auth-field input:-webkit-autofill:hover,
 .auth-field input:-webkit-autofill:focus {
@@ -1271,18 +1275,18 @@ body {
 }
 
 .auth-field input.invalid {
-  border-color: var(--orange);
+  border-color: var(--red);
 }
 
 .auth-error,
 .section p.auth-error {
   margin: 0;
   padding: 10px 14px;
-  border: 1px solid rgba(240, 127, 42, .4);
+  border: 1px solid rgba(224, 65, 47, .45);
   border-radius: 14px;
-  background-color: rgba(240, 127, 42, .1);
+  background-color: rgba(224, 65, 47, .12);
   font-size: 14px;
-  color: var(--orange);
+  color: var(--red);
 }
 
 .auth-submit.button.accent {
@@ -1372,7 +1376,7 @@ body {
 }
 
 .search-note.error {
-  color: var(--orange);
+  color: var(--red);
 }
 
 .modal-overlay {
@@ -1620,8 +1624,15 @@ body {
 
 .player-error {
   display: flex;
+  align-self: flex-start;
+  max-width: 100%;
+  box-sizing: border-box;
   gap: 8px;
   margin-top: 2px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background-color: var(--red);
+  color: var(--white);
   font-family: 'IBMPlexMono-Medium', monospace;
   font-size: 11px;
   line-height: 1.6;
@@ -1632,7 +1643,7 @@ body {
 
 .player-error a {
   flex: none;
-  color: var(--black);
+  color: var(--white);
   text-decoration: underline;
 }
 
@@ -2054,7 +2065,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   padding-top: 20px;
   border-top: 1px solid var(--border);
@@ -2108,8 +2119,6 @@ body {
 .source-token .button.outline-light {
   align-self: flex-start;
 }
-
-/* ===== Плейлисты ===== */
 
 .library-buttons {
   display: flex;
@@ -2305,14 +2314,9 @@ body {
   overflow: hidden;
 }
 
-.playlist-cover.loading,
 .playlist-cover.playlist-new {
   border: 2px dashed var(--border);
   background-color: var(--hover);
-}
-
-.playlist-cover.small.loading {
-  border-width: 0;
 }
 
 .playlist-loading,
@@ -2490,8 +2494,6 @@ body {
     width: 160px;
   }
 }
-
-/* ===== Окно подтверждения ===== */
 
 .modal-overlay.confirm-overlay {
   z-index: 30;
@@ -2685,7 +2687,6 @@ body {
   padding-right: 110px;
 }
 
-/* Трек из отключённого сервиса: единственный случай обесцвечивания */
 .track.unavailable {
   cursor: pointer;
 }
@@ -2718,7 +2719,6 @@ body {
   }
 }
 
-/* Длинные списки плейлистов прокручиваются внутри, а не растягивают страницу */
 .navbar {
   overflow: hidden;
 }
@@ -2746,7 +2746,6 @@ body {
   margin-top: 0;
 }
 
-/* Плейлисты в медиатеке — одна лента с горизонтальной прокруткой */
 .playlist-grid {
   display: grid;
   grid-auto-flow: column;
@@ -2763,7 +2762,8 @@ body {
   scrollbar-color: var(--input-border) transparent;
 }
 
-.playlist-grid > .playlist-card {
+.playlist-grid > .playlist-card,
+.playlist-grid > .playlist-card-wrap {
   scroll-snap-align: start;
 }
 
@@ -2775,7 +2775,6 @@ body {
   }
 }
 
-/* Обводка плитки: жёлтая рамка и зазоры между обложками, как в макете */
 .playlist-cover:has(.playlist-collage) {
   background-color: var(--accent);
 }
@@ -2785,7 +2784,6 @@ body {
   box-sizing: border-box;
 }
 
-/* Внешние углы обложек концентричны углу карточки: радиус карточки минус толщина рамки (2px border + 1px padding) */
 .playlist-collage {
   --tile-outer: calc(18px - 3px);
   --tile-inner: 4px;
@@ -2822,7 +2820,6 @@ body {
   }
 }
 
-/* Всплывающее сообщение над плеером */
 .toast {
   position: fixed;
   left: 50%;
@@ -2875,8 +2872,6 @@ body {
     animation: none;
   }
 }
-
-/* ===== Очередь ===== */
 
 .player-right .queue-toggle.active,
 .player-right .queue-toggle.active:hover {
@@ -3003,8 +2998,6 @@ body {
   }
 }
 
-/* ===== Волна дня: три варианта по ширине блока (макет «10 · Волна дня») ===== */
-
 .hero-wrap {
   flex: none;
   container: wave / inline-size;
@@ -3015,7 +3008,6 @@ body {
   pointer-events: none;
 }
 
-/* В широком варианте счётчик тянется на всю высоту обложки, с теми же отступами от краёв, что и текст */
 .hero-counter {
   order: 2;
   align-self: stretch;
@@ -3081,7 +3073,6 @@ body {
   white-space: nowrap;
 }
 
-/* B · планшет: орбиты уходят на фон, счётчик — «таблетка» в правом верхнем углу */
 @container wave (max-width: 999px) {
   .hero {
     flex-direction: column;
@@ -3133,7 +3124,6 @@ body {
   }
 }
 
-/* C · телефон: всё в столбик, орбиты полупрозрачным фоном, счётчик — два чипа */
 @container wave (max-width: 639px) {
   .hero {
     gap: 18px;
@@ -3202,4 +3192,507 @@ body {
 
 .icon-button.mode-hidden {
   visibility: hidden;
+}
+
+.trim-toggle.active {
+  opacity: 1;
+}
+
+
+.progress-time {
+  flex: none;
+  width: 52px;
+  display: flex;
+  justify-content: center;
+  text-align: center;
+}
+
+
+
+.progress-track {
+  position: relative;
+  flex-grow: 1;
+  min-width: 80px;
+  height: 14px;
+}
+
+.progress-rail,
+.progress-fill {
+  position: absolute;
+  top: 50%;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.progress-rail {
+  left: 0;
+  right: 0;
+  background-color: rgba(18, 19, 15, .22);
+}
+
+.progress-fill {
+  background-color: var(--black);
+}
+
+.progress-thumb {
+  --pos: 0;
+  position: absolute;
+  top: 50%;
+  left: calc(7px + (100% - 14px) * var(--pos));
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background-color: var(--black);
+  pointer-events: none;
+  transition: transform .15s;
+}
+
+.progress-thumb.disabled {
+  opacity: .5;
+}
+
+.progress-track:hover .progress-thumb:not(.disabled) {
+  transform: scale(1.2);
+}
+
+.progress-track.animating .progress-fill {
+  transition: left .3s cubic-bezier(.4, 0, .2, 1), width .3s cubic-bezier(.4, 0, .2, 1);
+}
+
+.progress-track.animating .progress-thumb {
+  transition: left .3s cubic-bezier(.4, 0, .2, 1), transform .15s;
+}
+
+.progress-track .progress-input::-webkit-slider-thumb,
+.progress-track .trim-position::-webkit-slider-thumb {
+  opacity: 0;
+}
+
+.progress-track .progress-input::-moz-range-thumb,
+.progress-track .trim-position::-moz-range-thumb {
+  opacity: 0;
+}
+
+.progress-track .progress-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.progress-track .progress-input::-webkit-slider-runnable-track {
+  background: transparent;
+}
+
+.progress-track .progress-input::-moz-range-track {
+  background: transparent;
+}
+
+.trim-range {
+  position: absolute;
+  inset: 0;
+}
+
+
+.trim-range input {
+  z-index: 1;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+}
+
+.trim-range input.trim-position {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.trim-range input::-webkit-slider-runnable-track {
+  height: 100%;
+  background: transparent;
+}
+
+.trim-range input::-moz-range-track {
+  background: transparent;
+}
+
+.trim-range input.trim-handle::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 24px;
+  margin-top: -5px;
+  border: 0;
+  border-radius: 5px;
+  background: linear-gradient(var(--accent), var(--accent)) center / 2px 12px no-repeat, var(--black);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.trim-range input.trim-handle::-moz-range-thumb {
+  width: 12px;
+  height: 24px;
+  border: 0;
+  border-radius: 5px;
+  background: linear-gradient(var(--accent), var(--accent)) center / 2px 12px no-repeat, var(--black);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.trim-range input.trim-handle:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--black);
+  outline-offset: 2px;
+}
+
+.trim-button {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  border: 2px solid var(--black);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--black);
+  cursor: pointer;
+  transition: transform .2s;
+}
+
+.trim-button:hover {
+  transform: scale(1.08);
+}
+
+.trim-button.confirm {
+  background-color: var(--black);
+  color: var(--accent);
+}
+
+.trim-range input.trim-position::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--black);
+  cursor: pointer;
+  transition: transform .15s;
+}
+
+.trim-range input.trim-position:hover::-webkit-slider-thumb {
+  transform: scale(1.2);
+}
+
+.trim-range input.trim-position::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--black);
+  cursor: pointer;
+}
+
+.trim-actions {
+  white-space: nowrap;
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 10px);
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'IBMPlexMono-Medium', monospace;
+  font-size: 12px;
+}
+
+@media (max-width: 1300px) {
+  .player.trimming .player-right .volume-input,
+  .player.trimming .player-right .volume-toggle {
+    display: none;
+  }
+}
+
+.trim-range input.trim-handle {
+  animation: trim-handle-in .2s ease-out;
+  transition: opacity .18s ease-in, transform .18s ease-in;
+}
+
+.trim-range.closing input.trim-handle {
+  animation: none;
+  opacity: 0;
+  transform: scaleY(.3);
+}
+
+.trim-actions {
+  animation: trim-actions-in .2s ease-out;
+  transition: opacity .18s ease-in, transform .18s ease-in;
+}
+
+.trim-actions.closing {
+  animation: none;
+  opacity: 0;
+  transform: translate(-10px, -50%);
+  pointer-events: none;
+}
+
+@keyframes trim-handle-in {
+  from {
+    opacity: 0;
+    transform: scaleY(.3);
+  }
+}
+
+@keyframes trim-actions-in {
+  from {
+    opacity: 0;
+    transform: translate(-10px, -50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-track.animating .progress-thumb,
+  .progress-track.animating .progress-fill,
+  .trim-range input.trim-handle,
+  .trim-actions {
+    animation: none;
+    transition: none;
+  }
+}
+
+.link-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: 'Manrope-Regular', sans-serif;
+  font-size: 14px;
+  letter-spacing: 0;
+  line-height: 1.45;
+  color: var(--light-gray);
+}
+
+.link-steps a {
+  color: var(--accent);
+}
+
+.link-steps code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background-color: var(--black);
+  font-family: 'IBMPlexMono-Regular', monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.auth-field textarea.headers-input {
+  min-height: 120px;
+  padding: 12px 16px;
+  box-sizing: border-box;
+  border: 1px solid var(--input-border);
+  border-radius: 16px;
+  outline: none;
+  resize: vertical;
+  background-color: var(--black);
+  color: var(--text);
+  font-family: 'IBMPlexMono-Regular', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  transition: border-color .3s;
+}
+
+.auth-field textarea.headers-input:focus {
+  border-color: var(--accent);
+}
+
+.playlist-card-wrap {
+  position: relative;
+  min-width: 0;
+  display: flex;
+}
+
+.playlist-card-wrap > .playlist-card {
+  flex: 1;
+  min-width: 0;
+}
+
+.playlist-hide-toggle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background-color: var(--black);
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(.85);
+  transition: opacity .15s, transform .15s;
+}
+
+.playlist-card-wrap:hover .playlist-hide-toggle,
+.playlist-hide-toggle:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.playlist-hide-toggle:hover {
+  transform: scale(1.08);
+}
+
+.playlist-hide-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.playlist-cover.playlist-hidden-cover {
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--border);
+  background-color: transparent;
+  color: #6E6B5E;
+}
+
+.playlist-card.is-hidden .playlist-card-title,
+.playlist-card.is-hidden .playlist-card-subtitle {
+  color: var(--gray);
+}
+
+.hidden-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.hidden-divider-dot {
+  color: var(--gray);
+  font-family: 'IBMPlexMono-Medium', monospace;
+  font-size: 11px;
+}
+
+.hidden-divider-line {
+  flex: 1;
+  height: 1px;
+  background-color: var(--border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .playlist-hide-toggle {
+    transition: none;
+  }
+}
+
+.playlist-card-wrap:has(.playlist-card.is-hidden) .playlist-hide-toggle {
+  background-color: var(--hover);
+}
+
+@keyframes sk-wave {
+  0% { background-position: 150% 0; }
+  100% { background-position: -50% 0; }
+}
+
+.sk {
+  display: block;
+  flex: none;
+  border-radius: 8px;
+  background: linear-gradient(100deg, #26271F 0%, #26271F 38%, #3A3B31 50%, #26271F 62%, #26271F 100%);
+  background-size: 200% 100%;
+  animation: sk-wave 1.6s linear infinite;
+}
+
+.sk.on-accent,
+.progress-track.is-loading .progress-rail {
+  background: linear-gradient(100deg, rgba(18, 19, 15, .16) 0%, rgba(18, 19, 15, .16) 38%, rgba(18, 19, 15, .3) 50%, rgba(18, 19, 15, .16) 62%, rgba(18, 19, 15, .16) 100%);
+  background-size: 200% 100%;
+  animation: sk-wave 1.6s linear infinite;
+}
+
+.playlist-cover.sk {
+  border: 0;
+}
+
+.cover.now-playing {
+  width: 60px;
+  border-radius: 14px;
+}
+
+.cover img.hidden {
+  position: absolute;
+  opacity: 0;
+}
+
+.cover-icon {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #6E6B5E;
+}
+
+.cover.on-accent .cover-icon {
+  color: rgba(18, 19, 15, .45);
+}
+
+.cover.cover-broken {
+  background-color: #17180F;
+  border: 1.5px dashed var(--input-border);
+  box-sizing: border-box;
+}
+
+.cover.card.cover-broken {
+  border-width: 2px;
+}
+
+.track.track-skeleton {
+  cursor: default;
+  pointer-events: none;
+}
+
+.track.track-skeleton .track-info {
+  gap: 7px;
+}
+
+.sk.sk-row-cover {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+}
+
+.playlist-card.playlist-card-skeleton {
+  gap: 10px;
+  cursor: default;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk,
+  .sk.on-accent,
+  .progress-track.is-loading .progress-rail {
+    animation: none;
+  }
+}
+
+.uploads-header {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.uploads-header .uploads-button {
+  height: 44px;
+  margin-left: auto;
 }

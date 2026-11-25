@@ -3,6 +3,8 @@ import Grain from "./Grain.tsx";
 import { formatTime, trackCount } from "../shared/format.ts";
 import type { LibraryPlaylist } from "../shared/usePlaylists.ts";
 import HeartFilledIcon from "../shared/icons/heart-filled.svg?react";
+import { EyeOffIcon } from "./EyeIcons.tsx";
+import { NoteIcon } from "./Skeleton.tsx";
 
 type PlaylistCoverProps = {
     playlist: LibraryPlaylist
@@ -20,16 +22,6 @@ function getStarPoints() {
 }
 
 const starPoints = getStarPoints();
-
-export function NoteIcon({ size = 44 }: { size?: number }) {
-    return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 18V5l11-2v13"/>
-            <circle cx="6" cy="18" r="3"/>
-            <circle cx="17" cy="16" r="3"/>
-        </svg>
-    )
-}
 
 function GeneratedCover({ playlist, size }: PlaylistCoverProps) {
     const meta = playlist.duration > 0
@@ -59,10 +51,18 @@ function PlaylistCover({ playlist, size }: PlaylistCoverProps) {
         classes.push("unavailable");
     }
 
+    if (playlist.hidden && size === "card") {
+        return (
+            <span className="playlist-cover card playlist-hidden-cover">
+                <EyeOffIcon size={40}/>
+            </span>
+        );
+    }
+
     let content;
     if (playlist.cover && !isBroken) {
         if (!isLoaded) {
-            classes.push("loading");
+            classes.push("sk", "loading");
         }
         content = (
             <>
@@ -77,7 +77,6 @@ function PlaylistCover({ playlist, size }: PlaylistCoverProps) {
             </>
         );
     } else if (playlist.covers.length > 0) {
-        // Плитка из обложек первых треков: от 1 до 4
         const tiles = playlist.covers.slice(0, 4);
         content = (
             <span className={"playlist-collage tiles-" + tiles.length}>

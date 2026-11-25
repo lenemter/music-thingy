@@ -10,8 +10,6 @@ type WaveOfDayProps = {
     onPlayWave: (seed: string) => void
 }
 
-// Вёрстка меняется по ширине самого блока (container queries в CSS):
-// ≥ 1000 px — широкий вариант, 640–1000 — планшет, < 640 — телефон.
 function WaveOfDay({ wave, onPlayWave }: WaveOfDayProps) {
     const isEmpty = wave.tracks.length === 0;
     const count = trackCount(wave.tracks.length).toUpperCase();
@@ -31,7 +29,6 @@ function WaveOfDay({ wave, onPlayWave }: WaveOfDayProps) {
                         <h1>{wave.title}</h1>
                         <p>{wave.description}</p>
 
-                        {/* На телефоне счётчик — та же «таблетка», что на планшете, но в потоке над кнопками */}
                         <div className="hero-ticket hero-ticket-inline">
                             <span className="hero-ticket-icon"><img src={star} width="22" height="22" alt=""/></span>
                             <span className="hero-ticket-text">

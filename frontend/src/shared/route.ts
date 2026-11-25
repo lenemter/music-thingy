@@ -1,5 +1,3 @@
-// Где сейчас пользователь. Хранится в адресе (#/library, #/playlist/<id>, #/search/<запрос>),
-// чтобы работали кнопки «назад» и «вперёд» браузера.
 export type Route = {
     page: "home" | "library"
     playlistId: string | null

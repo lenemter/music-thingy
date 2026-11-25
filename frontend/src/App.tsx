@@ -32,7 +32,6 @@ type NameModal = { mode: "create", track?: Track } | { mode: "rename", playlist:
 
 function App() {
     const [user, setUser] = useState<User | null>(loadUser());
-    // После перезагрузки — та же очередь, что играла; если её нет, последние прослушанные треки
     const [initialSession] = useState(() => {
         const session = loadSession();
         if (session) {
@@ -66,7 +65,6 @@ function App() {
         saveSession(player.queue, player.index, activeWaveSeed);
     }, [player.queue, player.index, activeWaveSeed]);
 
-    // Восстановленная волна снова становится бесконечной, как только известны её треки
     const canResumeWave = !isWaveResumed && waveSeed !== undefined && wave.tracks.length > 1;
     useEffect(() => {
         if (!canResumeWave || !waveSeed) {
@@ -78,11 +76,9 @@ function App() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [canResumeWave]);
 
-    // Волна бесконечная: сначала текущий трек и 3 следующих, дальше плеер сам добирает треки из потока
     function playWave(seed: string) {
         const stream = createWaveStream(wave.tracks, seed);
         let first = stream.take(Math.min(4, wave.tracks.length));
-        // Не начинаем с трека, который уже в плеере, — иначе кажется, что кнопка ничего не сделала
         if (first.length > 1 && player.currentTrack && first[0].id === player.currentTrack.id) {
             first = [...first.slice(1), ...stream.take(1)];
         }

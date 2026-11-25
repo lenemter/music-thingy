@@ -2,7 +2,6 @@ import type { Track } from "./types.ts";
 import { loadUser } from "./api.ts";
 import { getTrackKey } from "./favorites.ts";
 
-// Свои плейлисты пока хранятся в браузере (на бэкенде их ещё нет), отдельно для каждого пользователя.
 export type UserPlaylist = {
     id: string
     name: string
@@ -96,7 +95,6 @@ export function removeTrackFromPlaylist(id: string, track: Track) {
     }));
 }
 
-// Кнопка «+» у трека открывает окно выбора плейлиста, которое живёт в App.
 export function openAddToPlaylist(track: Track) {
     addListeners.forEach((listener) => listener(track));
 }

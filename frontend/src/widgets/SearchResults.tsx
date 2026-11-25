@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import TrackRow from "../entities/TrackRow.tsx";
+import { TrackListSkeleton } from "../entities/Skeleton.tsx";
 import { searchMusic } from "../shared/api.ts";
 import { trackFromFile, trackFromRead } from "../shared/music/convert.ts";
 import { getServiceName } from "../shared/music/services.ts";
@@ -80,7 +81,7 @@ function SearchResults({ query, currentTrack, services, files, onPlay, onClose, 
                 </p>
             )}
 
-            {isLoading && <p className="search-note">Ищем во всех сервисах…</p>}
+            {isLoading && <TrackListSkeleton count={6} label="Ищем во всех сервисах"/>}
 
             {!isLoading && error && <p className="search-note error">{error}</p>}
 

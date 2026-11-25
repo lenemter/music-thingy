@@ -79,7 +79,7 @@ function AuthPage({ onLogin }: AuthPageProps) {
                     <p>Один аккаунт, чтобы искать, слушать, собирать плейлисты и править треки из всех сервисов.</p>
                     <div className="auth-stamp">
                         <span className="auth-barcode"/>
-                        <span>SGNL · ВХОД · 2026</span>
+                        <span>SIGNAL</span>
                     </div>
                 </div>
             </aside>

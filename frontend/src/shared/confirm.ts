@@ -1,4 +1,3 @@
-// Своё окно подтверждения вместо window.confirm: confirmAction(...) возвращает Promise<boolean>.
 export type ConfirmIcon = "delete" | "logout" | "reset" | "disconnect"
 
 export type ConfirmDetail = {
@@ -14,7 +13,6 @@ export type ConfirmOptions = {
     danger?: boolean
     icon?: ConfirmIcon
     details?: ConfirmDetail[]
-    // Если задан — показывается «Больше не спрашивать», выбор запоминается в браузере по этому ключу.
     rememberKey?: string
 }
 

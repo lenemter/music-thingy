@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import type { Track } from "../types.ts";
-import { createEngine, resolveSource } from "./source.ts";
+import { createEngine, prefetchSource, resolveSource } from "./source.ts";
+import { getTrim } from "./trims.ts";
+import type { Trim } from "./trims.ts";
 import type { EngineEvents, PlayerEngine } from "./types.ts";
 
-// Повтор: выключен или повтор текущего трека, когда он закончится
 export type RepeatMode = "off" | "one"
 
-// Сколько треков держать впереди в бесконечной очереди
 const UPCOMING_COUNT = 3;
+
+const TRIM_FADE_SECONDS = 1.5;
+const FADE_TICK_MS = 50;
 
 function shuffleTracks(tracks: Track[]) {
     const result = [...tracks];
@@ -59,10 +62,24 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
     const volumeRef = useRef(volume);
     const endedRef = useRef<() => void>(() => {});
     const pendingSeekRef = useRef<{ target: number, until: number } | null>(null);
-    // Источник, который подкладывает треки в конец очереди (бесконечная волна)
     const extendRef = useRef<((count: number) => Track[]) | null>(null);
-    // Порядок очереди до перемешивания — чтобы вернуть его, когда перемешивание выключат
     const originalOrderRef = useRef<Track[]>(initialQueue);
+    const trimPreviewRef = useRef<Trim | null | undefined>(undefined);
+    const trimHoldRef = useRef(false);
+
+    function effectiveTrim(track: Track | undefined): Trim | null {
+        return trimPreviewRef.current !== undefined ? trimPreviewRef.current : getTrim(track);
+    }
+
+    const lastTimeRef = useRef({ time: 0, stamp: 0, total: 0 });
+    const fadeTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+
+    function seekEngine(seconds: number) {
+        lastTimeRef.current = { ...lastTimeRef.current, time: seconds, stamp: performance.now() };
+        pendingSeekRef.current = { target: seconds, until: Date.now() + 1500 };
+        engineRef.current?.seek(seconds);
+        setCurrentTime(seconds);
+    }
 
     function withUpcoming(list: Track[], trackIndex: number) {
         const extend = extendRef.current;
@@ -94,6 +111,40 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
         setExternalUrl(undefined);
         setIsLoading(true);
 
+        let trimEndFired = false;
+        let isEnginePlaying = false;
+        let appliedVolume = -1;
+
+        clearInterval(fadeTimerRef.current);
+        lastTimeRef.current = { time: 0, stamp: performance.now(), total: track.duration };
+        fadeTimerRef.current = setInterval(() => {
+            const engine = engineRef.current;
+            if (!isActual()) {
+                return;
+            }
+            if (!engine) {
+                return;
+            }
+            let factor = 1;
+            const trim = effectiveTrim(track);
+            const last = lastTimeRef.current;
+            if (trim && isEnginePlaying && !trimHoldRef.current) {
+                const now = last.time + (performance.now() - last.stamp) / 1000;
+                const fade = Math.min(TRIM_FADE_SECONDS, (trim.end - trim.start) / 4);
+                if (trim.start > 0.05) {
+                    factor = Math.min(factor, Math.max(0, Math.min(1, (now - trim.start) / fade)));
+                }
+                if (last.total > 0 && trim.end < last.total - 0.05) {
+                    factor = Math.min(factor, Math.max(0, Math.min(1, (trim.end - now) / fade)));
+                }
+            }
+            const volume = volumeRef.current * factor;
+            if (Math.abs(volume - appliedVolume) > 0.003) {
+                appliedVolume = volume;
+                engine.setVolume(volume);
+            }
+        }, FADE_TICK_MS);
+
         const events: EngineEvents = {
             onTime: (time, total) => {
                 if (isActual()) {
@@ -102,14 +153,36 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
                         return;
                     }
                     pendingSeekRef.current = null;
+                    lastTimeRef.current = { time, stamp: performance.now(), total: total > 0 ? total : lastTimeRef.current.total };
                     setCurrentTime(time);
                     if (total > 0) {
                         setDuration(total);
+                    }
+                    const trim = effectiveTrim(track);
+                    if (!trim || trimHoldRef.current) {
+                        trimEndFired = false;
+                    } else if (time >= trim.end) {
+                        if (!trimEndFired) {
+                            trimEndFired = true;
+                            if (trimPreviewRef.current !== undefined) {
+                                seekEngine(trim.start);
+                            } else {
+                                engineRef.current?.pause();
+                                seekEngine(trim.start);
+                                endedRef.current();
+                            }
+                        }
+                    } else if (time < trim.start - 0.5) {
+                        seekEngine(trim.start);
+                    } else {
+                        trimEndFired = false;
                     }
                 }
             },
             onPlayingChange: (playing) => {
                 if (isActual()) {
+                    isEnginePlaying = playing;
+                    lastTimeRef.current = { ...lastTimeRef.current, stamp: performance.now() };
                     setIsPlaying(playing);
                     setIsLoading(false);
                 }
@@ -151,6 +224,15 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
             }
 
             setIsLoading(false);
+            const trim = effectiveTrim(track);
+            if (trim && trim.start > 0) {
+                pendingSeekRef.current = { target: trim.start, until: Date.now() + 1500 };
+                lastTimeRef.current = { ...lastTimeRef.current, time: trim.start, stamp: performance.now() };
+                engine.seek(trim.start);
+                setCurrentTime(trim.start);
+                engine.setVolume(0);
+                appliedVolume = 0;
+            }
             engine.play();
         } catch (err) {
             if (isActual()) {
@@ -164,7 +246,6 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
         if (queue.length === 0) {
             return null;
         }
-        // Перемешивание меняет порядок самой очереди, поэтому следующий трек — всегда следующий в списке
         if (index + 1 < queue.length) {
             return index + 1;
         }
@@ -172,7 +253,6 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
     }
 
     function playTrack(track: Track, list: Track[], extend?: (count: number) => Track[]) {
-        // Новый бесконечный источник (волна) всегда перезапускает очередь, даже если трек тот же
         if (!extend && currentTrack && track.id === currentTrack.id && engineRef.current) {
             togglePlay();
             return;
@@ -184,7 +264,6 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
         if (trackIndex === -1) {
             startTrack([track], 0);
         } else if (isShuffle && !extend) {
-            // Перемешивание включено: выбранный трек первым, остальные — в случайном порядке
             startTrack([track, ...shuffleTracks(list.filter((_, i) => i !== trackIndex))], 0);
         } else {
             startTrack(list, trackIndex);
@@ -207,9 +286,17 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
     }
 
     function seek(seconds: number) {
-        pendingSeekRef.current = { target: seconds, until: Date.now() + 1500 };
-        engineRef.current?.seek(seconds);
-        setCurrentTime(seconds);
+        const trim = effectiveTrim(currentTrack);
+        const target = trim ? Math.min(Math.max(seconds, trim.start), Math.max(trim.start, trim.end - 0.5)) : seconds;
+        seekEngine(target);
+    }
+
+    function setTrimPreview(trim: Trim | null | undefined) {
+        trimPreviewRef.current = trim;
+    }
+
+    function setTrimHold(isHeld: boolean) {
+        trimHoldRef.current = isHeld;
     }
 
     function next() {
@@ -219,19 +306,23 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
         }
     }
 
+    function trackStart() {
+        return effectiveTrim(currentTrack)?.start ?? 0;
+    }
+
     function prev() {
-        if (currentTime > 3 || queue.length < 2) {
-            seek(0);
+        if (currentTime > trackStart() + 3 || queue.length < 2) {
+            seek(trackStart());
         } else if (index > 0) {
             startTrack(queue, index - 1);
         } else {
-            seek(0);
+            seek(trackStart());
         }
     }
 
     function handleEnded() {
         if (repeat === "one") {
-            seek(0);
+            seek(trackStart());
             engineRef.current?.play();
             return;
         }
@@ -243,7 +334,6 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
         startTrack(queue, nextIndex);
     }
 
-    // Очередь: переход к треку, удаление и очистка без перезапуска текущего трека
     function playAt(trackIndex: number) {
         if (trackIndex === index && engineRef.current) {
             togglePlay();
@@ -263,7 +353,6 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
         setIndex(newIndex);
     }
 
-    // Подключить бесконечный источник к уже собранной очереди (восстановление волны после перезагрузки)
     function setExtend(extend: ((count: number) => Track[]) | null) {
         extendRef.current = extend;
         if (extend) {
@@ -289,7 +378,6 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
             originalOrderRef.current = queue;
             setQueue([...played, ...shuffleTracks(upcoming)]);
         } else {
-            // Возвращаем исходный порядок для того, что ещё не сыграло
             const original = originalOrderRef.current;
             const ordered = original.filter((track) => upcoming.includes(track));
             const extra = upcoming.filter((track) => !original.includes(track));
@@ -342,8 +430,21 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
         }
     }, [isPlaying]);
 
+    const nextIndex = getNextIndex();
+    const nextTrack = nextIndex !== null ? queue[nextIndex] : undefined;
     useEffect(() => {
-        return () => engineRef.current?.destroy();
+        if (!isPlaying || !nextTrack) {
+            return;
+        }
+        const timer = setTimeout(() => prefetchSource(nextTrack), 2000);
+        return () => clearTimeout(timer);
+    }, [isPlaying, nextTrack]);
+
+    useEffect(() => {
+        return () => {
+            clearInterval(fadeTimerRef.current);
+            engineRef.current?.destroy();
+        };
     }, []);
 
     return {
@@ -362,6 +463,8 @@ export function usePlayer(initialQueue: Track[], initialIndex = 0) {
         index,
         isEndless: extendRef.current !== null,
         setExtend,
+        setTrimPreview,
+        setTrimHold,
         playAt,
         removeAt,
         clearUpcoming,

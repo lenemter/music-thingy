@@ -2,6 +2,8 @@ import { useRef, useState } from "react";
 import { confirmAction } from "../shared/confirm.ts";
 import type { DragEvent } from "react";
 import { formatTime } from "../shared/format.ts";
+import { playedDuration } from "../shared/player/trims.ts";
+import { trackFromFile } from "../shared/music/convert.ts";
 import { deleteUpload } from "../shared/library.ts";
 import { fallbackCover } from "../shared/coverTemplates.ts";
 import { AUDIO_ACCEPT, useUploader } from "../shared/useUploader.ts";
@@ -39,7 +41,7 @@ function OwnMusic({ files, playingFileId, onFilesChange, onPlay, onDeleted, onOp
     async function handleDelete(file: UserFile) {
         const isConfirmed = await confirmAction({
             title: "Удалить «" + file.name + "»?",
-            text: "Файл и его правки удалятся из этого браузера навсегда. Восстановить не получится.",
+            text: "Файл и его правки удалятся навсегда. Восстановить не получится.",
             confirmText: "Удалить",
             danger: true,
             icon: "delete",
@@ -111,7 +113,7 @@ function OwnMusic({ files, playingFileId, onFilesChange, onPlay, onDeleted, onOp
                             )}
                             <span className="file-info">
                                 <span className="file-name">{file.name}</span>
-                                <span className="mono">{file.artist} · {formatTime(file.duration)}</span>
+                                <span className="mono">{file.artist} · {formatTime(playedDuration(trackFromFile(file), file.duration))}</span>
                             </span>
                             <button
                                 className="icon-button file-delete"

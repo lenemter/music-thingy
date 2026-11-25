@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { loginVk, pollDeviceLink } from "../shared/api.ts";
+import { connectYouTubeWithHeaders, loginVk, pollDeviceLink } from "../shared/api.ts";
+import { parseBrowserHeaders, validateBrowserHeaders } from "../shared/music/youtubeHeaders.ts";
 import { deviceLinkHints } from "../shared/music/services.ts";
 import type { DeviceCode } from "../shared/music/types.ts";
 import type { Service } from "../shared/types.ts";
@@ -32,6 +33,7 @@ function ServiceLink({ service, deviceCode, onLinked, onRestart, onCancel }: Ser
     const [code, setCode] = useState("");
     const [codeHint, setCodeHint] = useState("");
     const [isSending, setIsSending] = useState(false);
+    const [rawHeaders, setRawHeaders] = useState("");
 
     useEffect(() => {
         if (!deviceCode || isFinished) {
@@ -105,9 +107,33 @@ function ServiceLink({ service, deviceCode, onLinked, onRestart, onCancel }: Ser
         setIsSending(false);
     }
 
+    async function handleYouTubeSubmit(event: FormEvent) {
+        event.preventDefault();
+        if (rawHeaders.trim() === "") {
+            setError("Вставьте заголовки запроса");
+            return;
+        }
+        const headers = parseBrowserHeaders(rawHeaders);
+        const problem = validateBrowserHeaders(headers);
+        if (problem) {
+            setError(problem);
+            return;
+        }
+        setIsSending(true);
+        setError("");
+        try {
+            await connectYouTubeWithHeaders(headers);
+            setRawHeaders("");
+            onLinked();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Не удалось привязать YouTube Music");
+        }
+        setIsSending(false);
+    }
+
     return (
         <div className="source-form">
-            <span className="label">ПРИВЯЗКА · {service.name.toUpperCase()}</span>
+            <span className="label">{service.name.toUpperCase()}</span>
 
             {deviceCode && !isFinished && (
                 <>
@@ -126,6 +152,44 @@ function ServiceLink({ service, deviceCode, onLinked, onRestart, onCancel }: Ser
                     </button>
                     <p className="search-note">Ждём подтверждения…</p>
                 </>
+            )}
+
+            {!deviceCode && service.id === "youtube" && (
+                <form className="source-token" onSubmit={handleYouTubeSubmit}>
+                    <p className="modal-text">
+                        Вход через Google на сервере пока не настроен, поэтому привяжем аккаунт по заголовкам браузера:
+                    </p>
+                    <ol className="link-steps">
+                        <li>
+                            Откройте{" "}
+                            <a href="https://music.youtube.com" target="_blank" rel="noreferrer">music.youtube.com</a>{" "}
+                            и войдите в аккаунт.
+                        </li>
+                        <li>Нажмите F12, откройте вкладку «Сеть» (Network) и введите в фильтр <code>browse</code>.</li>
+                        <li>Обновите страницу или откройте раздел «Библиотека» — появится запрос <code>browse</code> (тип POST).</li>
+                        <li>
+                            Нажмите на него, в «Заголовках запроса» (Request Headers) выделите всё и скопируйте.
+                            В Firefox: правый клик по запросу → «Копировать» → «Копировать заголовки запроса».
+                        </li>
+                    </ol>
+                    <label className="auth-field">
+                        <span className="label">ЗАГОЛОВКИ ЗАПРОСА</span>
+                        <textarea
+                            className="headers-input"
+                            value={rawHeaders}
+                            rows={6}
+                            spellCheck={false}
+                            placeholder={"accept: */*\ncookie: ...\nuser-agent: ..."}
+                            onChange={(event) => setRawHeaders(event.target.value)}
+                        />
+                    </label>
+                    <p className="search-note">
+                        В заголовках есть cookie вашего аккаунта — они сохраняются только на нашем сервере. Чтобы отозвать доступ, выйдите из аккаунта на music.youtube.com или отключите сервис здесь.
+                    </p>
+                    <button className="button accent auth-submit" type="submit" disabled={isSending}>
+                        {isSending ? "Проверяем…" : "Привязать"}
+                    </button>
+                </form>
             )}
 
             {!deviceCode && service.id === "vk" && (

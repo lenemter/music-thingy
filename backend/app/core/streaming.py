@@ -6,6 +6,7 @@ import mimetypes
 import time
 from pathlib import Path
 from typing import Generator
+from urllib.parse import quote
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -94,6 +95,9 @@ def range_stream_response(
         }.get(ext, "application/octet-stream")
 
     fname = filename or path.name
+    # Заголовки HTTP — только latin-1: имя с кириллицей кладём в filename* (RFC 5987), а в filename — ASCII-замену
+    ascii_name = fname.encode("ascii", "replace").decode("ascii").replace('"', "'")
+    disposition = f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(fname)}"
     range_header = request.headers.get("range")
 
     if not range_header:
@@ -105,7 +109,7 @@ def range_stream_response(
         headers = {
             "Content-Length": str(file_size),
             "Accept-Ranges": "bytes",
-            "Content-Disposition": f'inline; filename="{fname}"',
+            "Content-Disposition": disposition,
         }
         return StreamingResponse(
             iter_full(),
@@ -151,7 +155,7 @@ def range_stream_response(
         "Content-Range": f"bytes {start}-{end}/{file_size}",
         "Accept-Ranges": "bytes",
         "Content-Length": str(content_length),
-        "Content-Disposition": f'inline; filename="{fname}"',
+        "Content-Disposition": disposition,
     }
     return StreamingResponse(
         iter_range(),
