@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     VK_DEFAULT_USER_AGENT: str = "KateMobileAndroid/56 lite-arm64-v8a (Android 11; SDK 30; arm64-v8a; samsung SM-G973F; ru)"
     DEFAULT_SEARCH_LIMIT: int = 10
     MAX_SEARCH_LIMIT: int = 50
+    
+    # Test
+    VK_TOKEN: str | None = None
+    VK_USER_AGENT: str | None = None
+    VK_ACCOUNT_ID: str | None = None
+    YTMUSIC_AUTH_FILE: str | None = None
 
     # CORS
     CORS_ORIGINS: list[str] = [
