@@ -91,9 +91,58 @@ def test_search_marks_liked_upload(client: TestClient):
 
     like = client.put(f"/api/music/tracks/local/{upload['id']}/like", json={}, headers=headers)
     assert like.status_code == 200
+    like_data = like.json()
+    assert like_data["title"] == "Любимая песня"
+    assert like_data["source"] == "ФАЙЛ"
+    assert like_data["synced"] is True
+    assert "sig=" in like_data["direct_audio_url"]
 
     track = search_local(client, "любимая", headers)["tracks"][0]
     assert track["liked"] is True
+
+    liked = client.get("/api/music/me/liked", headers=headers).json()
+    assert len(liked) == 1
+    assert liked[0]["service"] == "local"
+    assert liked[0]["service_id"] == str(upload["id"])
+    assert liked[0]["source"] == "ФАЙЛ"
+    assert "sig=" in liked[0]["direct_audio_url"]
+
+    unlike = client.delete(f"/api/music/tracks/local/{upload['id']}/like", headers=headers)
+    assert unlike.status_code == 200
+    assert unlike.json()["liked"] is False
+    assert unlike.json()["synced"] is True
+
+
+def test_local_track_playback_and_stream_use_adapter(client: TestClient):
+    owner = auth_headers(client, "local_player@example.com")
+    stranger = auth_headers(client, "local_other@example.com")
+    upload = upload_file(client, owner, "Трек для плеера")
+
+    track_resp = client.get(f"/api/music/tracks/local/{upload['id']}", headers=owner)
+    assert track_resp.status_code == 200
+    track = track_resp.json()
+    assert track["service"] == "local"
+    assert track["title"] == "Трек для плеера"
+    assert track["source"] == "ФАЙЛ"
+    assert "sig=" in track["direct_audio_url"]
+
+    pb_resp = client.get(f"/api/music/playback/local/{upload['id']}", headers=owner)
+    assert pb_resp.status_code == 200
+    pb = pb_resp.json()
+    assert pb["kind"] == "direct_url"
+    assert f"/api/uploads/{upload['id']}/stream?sig=" in pb["ref"]
+
+    stream_resp = client.get(
+        f"/api/music/tracks/local/{upload['id']}/stream",
+        headers=owner,
+        follow_redirects=False,
+    )
+    assert stream_resp.status_code == 307
+    assert f"/api/uploads/{upload['id']}/stream?sig=" in stream_resp.headers["location"]
+
+    assert client.get(f"/api/music/tracks/local/{upload['id']}", headers=stranger).status_code == 404
+    assert client.get(f"/api/music/playback/local/{upload['id']}").status_code == 404
+    assert client.get(f"/api/music/tracks/local/{upload['id']}/stream").status_code == 404
 
 
 # ---------- уровень агрегатора ----------
