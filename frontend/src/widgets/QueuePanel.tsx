@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import Cover from "../entities/Cover.tsx";
+import { fallbackCover } from "../shared/coverTemplates.ts";
 import Equalizer from "../entities/Equalizer.tsx";
 import { formatTime, trackCount } from "../shared/format.ts";
 import { playedDuration } from "../shared/player/trims.ts";
@@ -18,7 +19,6 @@ function QueuePanel({ player, isClosing, onClose }: QueuePanelProps) {
     const panelRef = useRef<HTMLElement>(null);
     const current = player.queue[player.index];
     const items = player.queue.map((track, index) => ({ track, index }));
-    // Показываем только ближайшее: 3 следующих и не больше 3 уже сыгранных
     const upcomingAll = items.slice(player.index + 1);
     const upcoming = upcomingAll.slice(0, VISIBLE_COUNT);
     const hiddenUpcoming = upcomingAll.length - upcoming.length;
@@ -50,7 +50,7 @@ function QueuePanel({ player, isClosing, onClose }: QueuePanelProps) {
             <li key={track.id + ":" + index} className={isCurrent ? "queue-row current" : "queue-row"}>
                 <button className="queue-row-main" onClick={() => player.playAt(index)} title={isCurrent ? "Пауза / продолжить" : "Включить"}>
                     {isCurrent && player.isPlaying ? <Equalizer/> : <span className="track-number">{index + 1 < 10 ? "0" + (index + 1) : index + 1}</span>}
-                    <Cover src={track.cover} size="row"/>
+                    <Cover src={track.cover} size="row" fallback={fallbackCover(track.id)}/>
                     <span className="track-info">
                         <span className="track-title">{track.title}</span>
                         <span className="track-artist">{track.artist}</span>

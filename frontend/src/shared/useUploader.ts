@@ -24,7 +24,6 @@ export function useUploader(files: UserFile[], onFilesChange: (files: UserFile[]
             setStatus(list.length > 1 ? "Загружаем " + (i + 1) + " из " + list.length + "…" : "Загружаем «" + file.name + "»…");
 
             try {
-                // Название, исполнителя и обложку из тегов сервер достаёт сам
                 const uploaded = await uploadAudioFile(file);
                 current = [uploaded, ...current];
                 onFilesChange(current);

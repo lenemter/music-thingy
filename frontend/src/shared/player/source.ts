@@ -6,7 +6,53 @@ import { createSoundCloudEngine } from "./soundcloudEngine.ts";
 import { createYouTubeEngine } from "./youtubeEngine.ts";
 import type { EngineEvents, PlaybackSource, PlayerEngine } from "./types.ts";
 
+const PREFETCH_TTL_MS = 10 * 60 * 1000;
+const prefetched = new Map<string, { promise: Promise<PlaybackSource>, at: number }>();
+let warmAudio: HTMLAudioElement | null = null;
+
+function sourceKey(track: Track) {
+    return track.service && track.serviceId ? track.service + ":" + track.serviceId : track.id;
+}
+
+export function prefetchSource(track: Track) {
+    const key = sourceKey(track);
+    const cached = prefetched.get(key);
+    if (cached && Date.now() - cached.at < PREFETCH_TTL_MS) {
+        return;
+    }
+    const promise = fetchSource(track);
+    prefetched.set(key, { promise, at: Date.now() });
+    promise
+        .then((source) => {
+            if (source.kind === "audio") {
+                warmAudio?.removeAttribute("src");
+                warmAudio = new Audio();
+                warmAudio.preload = "auto";
+                warmAudio.muted = true;
+                warmAudio.src = source.src;
+            }
+        })
+        .catch(() => {
+            prefetched.delete(key);
+        });
+}
+
 export async function resolveSource(track: Track): Promise<PlaybackSource> {
+    const key = sourceKey(track);
+    const cached = prefetched.get(key);
+    if (cached) {
+        prefetched.delete(key);
+        if (Date.now() - cached.at < PREFETCH_TTL_MS) {
+            try {
+                return await cached.promise;
+            } catch {
+            }
+        }
+    }
+    return fetchSource(track);
+}
+
+async function fetchSource(track: Track): Promise<PlaybackSource> {
     if (track.audioUrl) {
         return { kind: "audio", src: track.audioUrl };
     }

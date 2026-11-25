@@ -28,13 +28,11 @@ function ConfirmDialog({ request, onDone }: { request: ConfirmRequest, onDone: (
         setTimeout(onDone, 200);
     }
 
-    // В опасных действиях фокус на «Отмене», чтобы случайный Enter ничего не удалил.
     useEffect(() => {
         (request.danger ? cancelButton : confirmButton).current?.focus();
     }, [request.danger]);
 
     useEffect(() => {
-        // Перехватываем Escape раньше остальных окон, чтобы не закрылось окно под подтверждением.
         function handleKey(event: KeyboardEvent) {
             if (event.key === "Escape") {
                 event.stopPropagation();

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Cover from "./Cover.tsx";
+import { fallbackCover } from "../shared/coverTemplates.ts";
 import { formatTime } from "../shared/format.ts";
 import { playedDuration } from "../shared/player/trims.ts";
 import type { Service, Track } from "../shared/types.ts";
@@ -43,7 +44,7 @@ function TrackRow({ track, number, isPlaying, services, onPlay, onRemove, onUnav
                 <span className="track-number">{number < 10 ? "0" + number : number}</span>
             )}
 
-            <Cover src={track.cover} size="row"/>
+            <Cover src={track.cover} size="row" fallback={fallbackCover(track.id)}/>
 
             <span className="track-info">
                 <span className="track-title">{track.title}</span>

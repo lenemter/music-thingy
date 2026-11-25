@@ -27,6 +27,7 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
     const [linkingService, setLinkingService] = useState<Service | null>(null);
     const [deviceCode, setDeviceCode] = useState<DeviceCode | null>(null);
     const [isStarting, setIsStarting] = useState(false);
+    const [usesHeadersLink, setUsesHeadersLink] = useState(false);
     const linkAttempt = useRef(0);
 
     function closeModal() {
@@ -64,6 +65,7 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
         setLinkingService(service);
         setDeviceCode(null);
         setError("");
+        setUsesHeadersLink(false);
         const usesCode = deviceLinkServices.includes(service.id);
         setIsStarting(usesCode);
         if (!usesCode) {
@@ -76,8 +78,12 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
             }
         } catch (err) {
             if (attempt === linkAttempt.current) {
-                setLinkingService(null);
-                setError(getLinkError(err));
+                if (service.id === "youtube" && err instanceof ApiError && err.status === 400) {
+                    setUsesHeadersLink(true);
+                } else {
+                    setLinkingService(null);
+                    setError(getLinkError(err));
+                }
             }
         }
         if (attempt === linkAttempt.current) {
@@ -186,7 +192,7 @@ function SourcesModal({ services, onUpdate, onClose }: SourcesModalProps) {
                     <p className="modal-text">Готовим вход…</p>
                 )}
 
-                {linkingService !== null && !isStarting && (!deviceLinkServices.includes(linkingService.id) || deviceCode !== null) && (
+                {linkingService !== null && !isStarting && (!deviceLinkServices.includes(linkingService.id) || deviceCode !== null || usesHeadersLink) && (
                     <ServiceLink
                         key={linkingService.id + (deviceCode?.device_code ?? "")}
                         service={linkingService}

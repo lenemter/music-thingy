@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import Grain from "../entities/Grain.tsx";
+import Cover from "../entities/Cover.tsx";
+import { fallbackCover } from "../shared/coverTemplates.ts";
 import { formatTime } from "../shared/format.ts";
 import { setTrackLiked } from "../shared/favorites.ts";
 import { openAddToPlaylist } from "../shared/playlists.ts";
@@ -42,12 +44,9 @@ function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerP
     const volumeBeforeMute = useRef(0.7);
     const isDragging = useRef(false);
     const dragValue = useRef(0);
-    // Обрезка: черновик границ, пока открыт режим обрезки; null — режим закрыт
     const [trimDraft, setTrimDraft] = useState<{ start: number, end: number } | null>(null);
-    // Закрытие с анимацией: элементы обрезки сначала плавно исчезают, потом убираются
     const [isTrimClosing, setIsTrimClosing] = useState(false);
     const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    // Плавный переход заливки включаем только на время смены режима — иначе она отставала бы от позиции
     const [fillAnimating, setFillAnimating] = useState(false);
     const fillTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -62,7 +61,6 @@ function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerP
         clearTimeout(fillTimer.current);
     }, []);
 
-    // Пока открыта обрезка, плеер играет по текущим ручкам, а не по сохранённой обрезке
     const { setTrimPreview, setTrimHold } = player;
     useEffect(() => {
         setTrimPreview(trimDraft ?? undefined);
@@ -122,7 +120,6 @@ function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerP
         setDragTime(null);
     }
 
-    // Ползунок воспроизведения не выходит за кусок обрезки — и пока его тянут, и после
     function clampToTrim(value: number) {
         const range = trimDraft ?? savedTrim;
         if (!range) {
@@ -141,23 +138,18 @@ function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerP
         }
     }
 
-    // Сохранённая обрезка вне режима обрезки: позиция и длина считаются внутри куска
     const pieceStart = savedTrim && player.duration > 0 ? savedTrim.start : 0;
     const pieceLength = savedTrim && player.duration > 0 ? Math.min(savedTrim.end, player.duration) - savedTrim.start : player.duration;
     const pieceTime = Math.min(Math.max(0, shownTime - pieceStart), pieceLength);
 
-    // Геометрия тёмной заливки в процентах дорожки
     const isEditingTrim = trimDraft !== null && !isTrimClosing;
     const fillLeft = isEditingTrim && trimDraft ? trimDraft.start / player.duration * 100 : 0;
     const fillWidth = isEditingTrim && trimDraft
         ? (trimDraft.end - trimDraft.start) / player.duration * 100
         : pieceLength > 0 ? pieceTime / pieceLength * 100 : 0;
 
-    // Позиция с учётом куска: пока трек не запускали, время плеера 0:00, но играть он начнёт с начала куска —
-    // поэтому в редакторе кружок показываем там, откуда трек на самом деле заиграет
     const editTime = clampToTrim(shownTime);
 
-    // Положение кружка позиции (0–1): в обрезке — по всему треку, иначе — внутри куска
     const thumbRatio = isEditingTrim
         ? (player.duration > 0 ? Math.min(1, Math.max(0, editTime / player.duration)) : 0)
         : (pieceLength > 0 ? pieceTime / pieceLength : 0);
@@ -167,7 +159,6 @@ function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerP
             showToast("Обрезать можно, когда трек загрузится");
             return;
         }
-        // Если нажали во время закрытия — отменяем закрытие
         clearTimeout(closeTimer.current);
         setIsTrimClosing(false);
         animateFill();
@@ -230,7 +221,7 @@ function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerP
 
             <div className="player-track">
                 <a href={track.externalUrl ?? "#"} target={track.externalUrl ? "_blank" : undefined} rel="noreferrer" title={"Открыть «" + track.title + "»"}>
-                    <img className="player-cover" src={track.cover} alt=""/>
+                    <Cover src={track.cover} size="now-playing" fallback={fallbackCover(track.id)} onAccent/>
                 </a>
                 <div className="player-info">
                     <span className="player-title">{track.title}</span>
@@ -255,7 +246,6 @@ function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerP
                                     <EditorIcon width={12} height={12}/>
                                 </span>
                             )}
-                            {player.isLoading && <span className="player-badge">ЗАГРУЗКА…</span>}
                         </span>
                     )}
                 </div>
@@ -269,7 +259,6 @@ function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerP
 
             <div className="player-center">
                 <div className="player-controls">
-                    {/* В волне порядок и так случайный — кнопку прячем, но оставляем место, чтобы кнопки не съезжали */}
                     <button
                         className={[
                             "icon-button mode",
@@ -307,23 +296,17 @@ function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerP
                     </button>
                 </div>
 
-                {/* Одна строка прогресса для обоих режимов: время слева и справа фиксированной ширины, а дорожка
-                    с тёмной заливкой не пересоздаётся. Вне обрезки заливка — сыгранная часть, в обрезке — выбранный кусок;
-                    при переключении она плавно перетекает из одного положения в другое */}
                 <div className="progress-row">
                     <span className="progress-time">{formatTime(Math.floor(isEditingTrim && trimDraft ? trimDraft.start : pieceTime))}</span>
-                    <div className={fillAnimating ? "progress-track animating" : "progress-track"}>
+                    <div className={["progress-track", fillAnimating ? "animating" : "", player.isLoading ? "is-loading" : ""].filter(Boolean).join(" ")}>
                         <span className="progress-rail"/>
                         <span className="progress-fill" style={{ left: fillLeft + "%", width: fillWidth + "%" }}/>
-                        {/* Общий кружок позиции для обоих режимов — переезжает вместе с заливкой.
-                            Встроенные кружки ползунков прозрачные и нужны только чтобы за них хвататься */}
                         <span
                             className={player.duration === 0 ? "progress-thumb disabled" : "progress-thumb"}
                             style={{ "--pos": thumbRatio } as CSSProperties}
                         />
                         {trimDraft ? (
                             <div className={isTrimClosing ? "trim-range closing" : "trim-range"}>
-                                {/* Где сейчас играет трек: кружок можно тянуть, клик по дорожке перематывает */}
                                 <input
                                     className="trim-position"
                                     type="range"
@@ -360,7 +343,6 @@ function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerP
                                 />
                             </div>
                         ) : (
-                            // Обрезанный трек выглядит как обычный, только короче: отсчёт идёт от начала куска
                             <input
                                 className="range-input progress-input"
                                 type="range"
@@ -377,7 +359,6 @@ function Player({ track, player, services, isQueueOpen, onToggleQueue }: PlayerP
                     </div>
                     <span className="progress-time">{formatTime(Math.floor(isEditingTrim && trimDraft ? trimDraft.end : pieceLength))}</span>
                     {trimDraft && (
-                        // Кнопки обрезки — сразу за временем конца, но вне потока: полоска не сжимается
                         <div className={isTrimClosing ? "trim-actions closing" : "trim-actions"}>
                             <button className="trim-button" title="Отменить" aria-label="Отменить обрезку" onClick={closeTrim}>
                                 <CloseIcon width={16} height={16}/>

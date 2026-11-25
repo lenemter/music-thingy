@@ -4,6 +4,7 @@ import { syncLikes } from "./likesSync.ts";
 import { getLikedTracks, getTrackKey, subscribeLikes } from "./favorites.ts";
 import { getUserPlaylists, subscribePlaylists } from "./playlists.ts";
 import { getHistory, getPlaylistPlays, subscribeHistory } from "./history.ts";
+import { getHiddenPlaylists, subscribeHiddenPlaylists } from "./hiddenPlaylists.ts";
 import { seededShuffle } from "./waveStream.ts";
 import { trackFromFile } from "./music/convert.ts";
 import { getServiceName } from "./music/services.ts";
@@ -28,6 +29,7 @@ export type LibraryPlaylist = {
     serviceId?: string
     externalUrl?: string
     unavailable?: string
+    hidden?: boolean
 }
 
 const PLAYLISTS_CACHE = "signal-service-playlists";
@@ -52,12 +54,10 @@ function writeCache(name: string, email: string, value: unknown[]) {
     }
 }
 
-// Свежие данные — для включённых сервисов, из кэша — для отключённых, чтобы их плейлисты были видны как «недоступные».
 function mergeWithCache<T extends { service: ServiceId }>(fresh: T[], cached: T[], online: string[]) {
     return [...fresh, ...cached.filter((item) => !online.includes(item.service))];
 }
 
-// offline — сервисы, которые точно отключены (пока статусы не загружены, список пустой)
 function resolveTracks(tracks: Track[], files: UserFile[], offline: string[]) {
     const likedKeys = new Set(getLikedTracks().map(getTrackKey));
     const result: Track[] = [];
@@ -120,7 +120,9 @@ export function usePlaylists(user: User | null, services: Service[], files: User
         const stopLikes = subscribeLikes(update);
         const stopPlaylists = subscribePlaylists(update);
         const stopHistory = subscribeHistory(update);
+        const stopHidden = subscribeHiddenPlaylists(update);
         return () => {
+            stopHidden();
             stopLikes();
             stopPlaylists();
             stopHistory();
@@ -132,7 +134,6 @@ export function usePlaylists(user: User | null, services: Service[], files: User
         setVersion((value) => value + 1);
     }, [email]);
 
-    // Лайки подтягиваются всегда (на сайте их можно ставить и без сервисов) и заново — когда меняется набор сервисов
     useEffect(() => {
         if (email) {
             syncLikes();
@@ -196,6 +197,7 @@ export function usePlaylists(user: User | null, services: Service[], files: User
             });
         }
 
+        const hiddenIds = getHiddenPlaylists();
         for (const playlist of servicePlaylists) {
             const serviceName = getServiceName(playlist.service);
             const isOnline = !offline.includes(playlist.service);
@@ -216,11 +218,11 @@ export function usePlaylists(user: User | null, services: Service[], files: User
                 serviceId: playlist.service_id,
                 externalUrl: playlist.external_url ?? undefined,
                 unavailable: isOnline ? undefined : serviceName,
+                hidden: hiddenIds.includes("service:" + playlist.service + ":" + playlist.service_id),
             });
         }
 
         return result;
-        // version меняется, когда меняются лайки или свои плейлисты в localStorage
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [version, files, servicePlaylists, onlineKey, offlineKey]);
 
@@ -230,10 +232,10 @@ export function usePlaylists(user: User | null, services: Service[], files: User
         [version, files, offlineKey],
     );
 
-    // «Продолжить слушать»: сначала плейлисты, которые недавно включали, потом остальные
     const continuePlaylists = useMemo(() => {
         const plays = getPlaylistPlays();
         return [...playlists]
+            .filter((playlist) => !playlist.hidden)
             .filter((playlist) => playlist.kind !== "liked" || playlist.tracksCount > 0 || plays[playlist.id])
             .sort((a, b) => (plays[b.id] ?? 0) - (plays[a.id] ?? 0))
             .slice(0, CONTINUE_COUNT);
@@ -282,7 +284,6 @@ function buildWave(playlists: LibraryPlaylist[], recent: Track[], history: Track
     const day = String(now.getDate()).padStart(2, "0") + "." + String(now.getMonth() + 1).padStart(2, "0");
     const pool = new Map<string, Track>();
     const add = (track: Track) => {
-        // демо-треки без сервиса не играют — в волну их не берём
         if (track.service && !track.unavailable && !pool.has(getTrackKey(track))) {
             pool.set(getTrackKey(track), track);
         }

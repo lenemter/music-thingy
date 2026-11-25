@@ -48,7 +48,7 @@ function Navbar({ playlists, activePlaylistId, onOpenPlaylist, onCreatePlaylist,
                 </div>
 
                 <div className="nav-playlists">
-                    {playlists.map((playlist) => (
+                    {playlists.filter((playlist) => !playlist.hidden).map((playlist) => (
                         <a
                             key={playlist.id}
                             className={["nav-link", playlist.id === activePlaylistId ? "active" : "", playlist.unavailable ? "unavailable" : ""].filter(Boolean).join(" ")}

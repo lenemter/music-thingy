@@ -1,7 +1,6 @@
 import type { Track } from "./types.ts";
 import { getTrackKey } from "./favorites.ts";
 
-// Перемешивание по строке-зерну: одно и то же зерно даёт один и тот же порядок
 export function seededShuffle<T>(items: T[], seedText: string) {
     let seed = 0;
     for (let i = 0; i < seedText.length; i++) {
@@ -19,8 +18,6 @@ export function seededShuffle<T>(items: T[], seedText: string) {
     return result;
 }
 
-// Бесконечная волна: идём по перемешанному списку, а когда он закончился — перемешиваем заново
-// (с новым зерном) и продолжаем, не повторяя последние сыгранные треки.
 export function createWaveStream(tracks: Track[], seed: string, recentTracks: Track[] = []) {
     let round = 0;
     let order = [...tracks];
@@ -28,7 +25,6 @@ export function createWaveStream(tracks: Track[], seed: string, recentTracks: Tr
     const avoidCount = Math.min(3, Math.max(0, tracks.length - 1));
     const recentKeys: string[] = avoidCount > 0 ? recentTracks.map(getTrackKey).slice(-avoidCount) : [];
     if (recentKeys.length > 0) {
-        // продолжение волны: начинаем новый круг и не повторяем только что игравшее
         nextRound();
     }
 

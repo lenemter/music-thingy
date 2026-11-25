@@ -391,3 +391,7 @@ export async function likeTrack(service: string, serviceId: string, info: { titl
 export async function unlikeTrack(service: string, serviceId: string): Promise<LikeResult> {
     return requestJson(`/api/music/tracks/${service}/${encodeURIComponent(serviceId)}/like`, { method: "DELETE" });
 }
+
+export async function connectYouTubeWithHeaders(headers: Record<string, string>): Promise<void> {
+    await postJson("/api/services/youtube/connect", { auth_json: JSON.stringify(headers) });
+}

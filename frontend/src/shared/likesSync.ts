@@ -10,7 +10,6 @@ const MAX_PAGES = 5;
 let running: Promise<void> | null = null;
 
 async function run() {
-    // Сначала переносим загрузки из браузера: у старых лайков на свои файлы меняются id
     await migrateBrowserUploads();
 
     for (const track of takeLegacyLikes()) {
@@ -32,7 +31,6 @@ async function run() {
     setLikedCache(items.map(trackFromRead));
 }
 
-// «Понравившиеся» = лайки на сайте + лайки из подключённых сервисов; сервер отдаёт их одним списком
 export function syncLikes() {
     if (!running) {
         running = run().catch(() => undefined).finally(() => {

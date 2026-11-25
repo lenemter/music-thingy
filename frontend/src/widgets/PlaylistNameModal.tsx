@@ -9,7 +9,6 @@ type PlaylistNameModalProps = {
     note?: string
     onSubmit: (name: string) => void
     onClose: () => void
-    // Вызывается вместо onClose, если окно закрыли без сохранения (Отмена, крестик, Escape, клик мимо).
     onCancel?: () => void
 }
 

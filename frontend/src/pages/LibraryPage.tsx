@@ -12,7 +12,8 @@ import UploadIcon from "../shared/icons/upload.svg?react";
 import PencilIcon from "../shared/icons/pencil.svg?react";
 import CloseIcon from "../shared/icons/close.svg?react";
 import { fallbackCover } from "../shared/coverTemplates.ts";
-import PlaylistCover, { NoteIcon } from "../entities/PlaylistCover.tsx";
+import PlaylistCover from "../entities/PlaylistCover.tsx";
+import { PlaylistCardSkeleton } from "../entities/Skeleton.tsx";
 import PlaylistView from "../widgets/PlaylistView.tsx";
 import LikeButton from "../entities/LikeButton.tsx";
 import { plural, trackCount } from "../shared/format.ts";
@@ -22,6 +23,8 @@ import { playedDuration } from "../shared/player/trims.ts";
 import type { LibraryPlaylist } from "../shared/usePlaylists.ts";
 import type { Track } from "../shared/types.ts";
 import PlusIcon from "../shared/icons/plus.svg?react";
+import { EyeIcon, EyeOffIcon } from "../entities/EyeIcons.tsx";
+import { setPlaylistHidden } from "../shared/hiddenPlaylists.ts";
 
 type LibraryPageProps = {
     user: User
@@ -53,6 +56,38 @@ function LibraryPage(props: LibraryPageProps) {
     const { onOpenPlaylist, onCreatePlaylist, onRenamePlaylist, onDeletePlaylist, onPlayTrack, onOpenSources } = props;
     const openPlaylist = playlists.find((playlist) => playlist.id === openPlaylistId) ?? null;
     const hasServicePlaylists = playlists.some((playlist) => playlist.kind === "service");
+    const visiblePlaylists = playlists.filter((playlist) => !playlist.hidden);
+    const hiddenPlaylists = playlists.filter((playlist) => playlist.hidden);
+
+    function renderPlaylistCard(playlist: LibraryPlaylist) {
+        const classes = ["playlist-card"];
+        if (playlist.unavailable) {
+            classes.push("unavailable");
+        }
+        if (playlist.hidden) {
+            classes.push("is-hidden");
+        }
+        return (
+            <div key={playlist.id} className="playlist-card-wrap">
+                <button className={classes.join(" ")} onClick={() => onOpenPlaylist(playlist.id)}>
+                    <PlaylistCover key={playlist.id + (playlist.cover ?? "")} playlist={playlist} size="card"/>
+                    <span className="playlist-card-title">{playlist.unavailable && !playlist.hidden ? "[" + playlist.name.toUpperCase() + "]" : playlist.name}</span>
+                    <span className="playlist-card-subtitle">{playlist.hidden ? "Скрыт" : playlist.subtitle}</span>
+                </button>
+                {playlist.kind === "service" && (
+                    <button
+                        type="button"
+                        className="playlist-hide-toggle"
+                        title={playlist.hidden ? "Показать плейлист" : "Скрыть плейлист"}
+                        aria-label={playlist.hidden ? "Показать плейлист «" + playlist.name + "»" : "Скрыть плейлист «" + playlist.name + "»"}
+                        onClick={() => setPlaylistHidden(playlist.id, !playlist.hidden)}
+                    >
+                        {playlist.hidden ? <EyeIcon size={16}/> : <EyeOffIcon size={16}/>}
+                    </button>
+                )}
+            </div>
+        );
+    }
     const uploader = useUploader(files, onFilesChange);
     const [editingFile, setEditingFile] = useState<UserFile | null>(null);
     const [isDragOver, setIsDragOver] = useState(false);
@@ -137,13 +172,9 @@ function LibraryPage(props: LibraryPageProps) {
                         }}
                     />
                     <div className="library-buttons">
-                        <button className="button outline-light" onClick={onCreatePlaylist}>
+                        <button className="button accent" onClick={onCreatePlaylist}>
                             <PlusIcon width={18} height={18}/>
                             Новый плейлист
-                        </button>
-                        <button className="button accent" disabled={uploader.isUploading} onClick={() => inputRef.current?.click()}>
-                            <UploadIcon width={18} height={18}/>
-                            {uploader.isUploading ? "Загружаем…" : "Загрузить музыку"}
                         </button>
                     </div>
                 </div>
@@ -153,25 +184,9 @@ function LibraryPage(props: LibraryPageProps) {
                     {isLoadingPlaylists && <span className="mono">обновляем из сервисов…</span>}
                 </div>
                 <div className="playlist-grid">
-                    {playlists.map((playlist) => (
-                        <button
-                            key={playlist.id}
-                            className={playlist.unavailable ? "playlist-card unavailable" : "playlist-card"}
-                            onClick={() => onOpenPlaylist(playlist.id)}
-                        >
-                            <PlaylistCover key={playlist.id + (playlist.cover ?? "")} playlist={playlist} size="card"/>
-                            <span className="playlist-card-title">{playlist.unavailable ? "[" + playlist.name.toUpperCase() + "]" : playlist.name}</span>
-                            <span className="playlist-card-subtitle">{playlist.subtitle}</span>
-                        </button>
-                    ))}
-                    {isLoadingPlaylists && !hasServicePlaylists && [0, 1].map((index) => (
-                        <div key={"loading-" + index} className="playlist-card">
-                            <span className="playlist-cover card loading">
-                                <span className="playlist-loading"><NoteIcon/></span>
-                            </span>
-                            <span className="playlist-card-title muted">Плейлисты грузятся</span>
-                            <span className="playlist-card-subtitle">Ждём ответа сервисов</span>
-                        </div>
+                    {visiblePlaylists.map(renderPlaylistCard)}
+                    {isLoadingPlaylists && !hasServicePlaylists && [0, 1, 2].map((index) => (
+                        <PlaylistCardSkeleton key={"loading-" + index} index={index}/>
                     ))}
                     <button className="playlist-card" onClick={onCreatePlaylist}>
                         <span className="playlist-cover card playlist-new">
@@ -182,9 +197,27 @@ function LibraryPage(props: LibraryPageProps) {
                     </button>
                 </div>
 
-                <div className="section-header library-subheader">
+                {hiddenPlaylists.length > 0 && (
+                    <>
+                        <div className="hidden-divider">
+                            <span className="label">СКРЫТЫЕ</span>
+                            <span className="hidden-divider-dot">·</span>
+                            <span className="label">{hiddenPlaylists.length}</span>
+                            <span className="hidden-divider-line"/>
+                        </div>
+                        <div className="playlist-grid">
+                            {hiddenPlaylists.map(renderPlaylistCard)}
+                        </div>
+                    </>
+                )}
+
+                <div className="section-header library-subheader uploads-header">
                     <h2>Загрузки</h2>
                     <span className="mono">{trackCount(files.length)}</span>
+                    <button className="button accent uploads-button" disabled={uploader.isUploading} onClick={() => inputRef.current?.click()}>
+                        <UploadIcon width={18} height={18}/>
+                        {uploader.isUploading ? "Загружаем…" : "Загрузить музыку"}
+                    </button>
                 </div>
 
                 {uploader.status && <p className="search-note">{uploader.status}</p>}

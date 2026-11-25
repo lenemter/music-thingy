@@ -1,9 +1,6 @@
 import type { Track } from "./types.ts";
 import { likeTrack, loadUser, unlikeTrack } from "./api.ts";
 
-// Лайки хранятся на сервере (PUT/DELETE /api/music/tracks/{service}/{id}/like, список — /api/music/me/liked).
-// Здесь — кэш этого списка в браузере, чтобы сердечко менялось сразу, а «Понравившиеся» открывались без ожидания.
-
 type LikedEntry = {
     key: string
     track: Track
@@ -11,9 +8,7 @@ type LikedEntry = {
 }
 
 const CACHE_KEY = "signal-likes-cache";
-// Лайки, поставленные до появления бэкенда, — переносятся на сервер один раз
 const LEGACY_KEY = "signal-liked";
-// Лайки из самих сервисов, которые пользователь снял у нас, но сервис не дал снять у себя
 const HIDDEN_KEY = "signal-unliked";
 
 const listeners = new Set<() => void>();
@@ -84,7 +79,6 @@ export function isLikeHidden(service: string, serviceId: string) {
     return readList<string>(HIDDEN_KEY).includes(getLikeKey(service, serviceId));
 }
 
-// Свежий список с сервера (порядок — как пришёл, новые первыми). Демо-треки без сервиса остаются локальными.
 export function setLikedCache(tracks: Track[]) {
     const now = Date.now();
     const localOnly = readList<LikedEntry>(CACHE_KEY).filter((entry) => !entry.track.service);
@@ -106,7 +100,6 @@ export function takeLegacyLikes(): Track[] {
 }
 
 function likeInfo(track: Track) {
-    // Обложку-картинку из браузера (data:) на сервер не отправляем — он подтянет свою
     const cover = track.cover && !track.cover.startsWith("data:") && !track.cover.startsWith("blob:") ? track.cover : undefined;
     return { title: track.title, artist: track.artist, cover, duration: track.duration };
 }
@@ -122,7 +115,6 @@ export async function setTrackLiked(track: Track, liked: boolean) {
     const before = readList<LikedEntry>(CACHE_KEY);
     const hiddenBefore = readList<string>(HIDDEN_KEY);
 
-    // Сразу меняем кэш, чтобы интерфейс не ждал сервер
     const entries = before.filter((entry) => entry.key !== key);
     if (liked) {
         entries.push({ key, track: snapshot(track), likedAt: Date.now() });
@@ -141,7 +133,6 @@ export async function setTrackLiked(track: Track, liked: boolean) {
         } else {
             const result = await unlikeTrack(track.service, track.serviceId);
             if (!result.synced) {
-                // Сервис не дал снять лайк у себя — прячем трек, чтобы он не вернулся при следующей загрузке списка
                 writeList(HIDDEN_KEY, [...readList<string>(HIDDEN_KEY).filter((item) => item !== key), key]);
                 notify();
             }

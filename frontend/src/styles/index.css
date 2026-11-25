@@ -255,7 +255,6 @@ body {
   flex-grow: 1;
   min-width: 0;
   overflow-y: auto;
-  /* место под полосу прокрутки резервируется всегда — вёрстка не прыгает, когда страница становится короче или длиннее */
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--hover) transparent;
@@ -618,7 +617,6 @@ body {
   flex: none;
   display: flex;
   gap: 24px;
-  /* фиксированная высота: блок не меняет размер, когда меняется описание или число треков */
   height: 420px;
   padding: 36px 36px 36px 40px;
   box-sizing: border-box;
@@ -631,7 +629,6 @@ body {
   opacity: .35;
 }
 
-/* Бейдж и заголовок всегда на своих местах сверху, кнопки прижаты к низу — длина описания ничего не сдвигает */
 .hero-info {
   position: relative;
   flex-grow: 1;
@@ -755,7 +752,6 @@ body {
   font-size: 13px;
 }
 
-/* auto-fill оставляет пустые колонки, поэтому одна-две карточки не растягиваются на всю ширину */
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
@@ -1051,7 +1047,6 @@ body {
 
 .progress-row {
   position: relative;
-  /* фиксированная высота — в режиме обрезки плеер не меняет размер */
   height: 18px;
   width: 100%;
   max-width: 600px;
@@ -1256,7 +1251,6 @@ body {
   transition: border-color .3s;
 }
 
-/* Автозаполнение браузера (сохранённые почта и пароль) красит поле в светлый — возвращаем наш тёмный стиль */
 .auth-field input:-webkit-autofill,
 .auth-field input:-webkit-autofill:hover,
 .auth-field input:-webkit-autofill:focus {
@@ -1628,7 +1622,6 @@ body {
   }
 }
 
-/* На жёлтом плеере красный текст не читается — ошибка идёт красной плашкой со светлым текстом */
 .player-error {
   display: flex;
   align-self: flex-start;
@@ -2127,8 +2120,6 @@ body {
   align-self: flex-start;
 }
 
-/* ===== Плейлисты ===== */
-
 .library-buttons {
   display: flex;
   flex-wrap: wrap;
@@ -2323,14 +2314,9 @@ body {
   overflow: hidden;
 }
 
-.playlist-cover.loading,
 .playlist-cover.playlist-new {
   border: 2px dashed var(--border);
   background-color: var(--hover);
-}
-
-.playlist-cover.small.loading {
-  border-width: 0;
 }
 
 .playlist-loading,
@@ -2508,8 +2494,6 @@ body {
     width: 160px;
   }
 }
-
-/* ===== Окно подтверждения ===== */
 
 .modal-overlay.confirm-overlay {
   z-index: 30;
@@ -2703,7 +2687,6 @@ body {
   padding-right: 110px;
 }
 
-/* Трек из отключённого сервиса: единственный случай обесцвечивания */
 .track.unavailable {
   cursor: pointer;
 }
@@ -2736,7 +2719,6 @@ body {
   }
 }
 
-/* Длинные списки плейлистов прокручиваются внутри, а не растягивают страницу */
 .navbar {
   overflow: hidden;
 }
@@ -2764,7 +2746,6 @@ body {
   margin-top: 0;
 }
 
-/* Плейлисты в медиатеке — одна лента с горизонтальной прокруткой */
 .playlist-grid {
   display: grid;
   grid-auto-flow: column;
@@ -2781,7 +2762,8 @@ body {
   scrollbar-color: var(--input-border) transparent;
 }
 
-.playlist-grid > .playlist-card {
+.playlist-grid > .playlist-card,
+.playlist-grid > .playlist-card-wrap {
   scroll-snap-align: start;
 }
 
@@ -2793,7 +2775,6 @@ body {
   }
 }
 
-/* Обводка плитки: жёлтая рамка и зазоры между обложками, как в макете */
 .playlist-cover:has(.playlist-collage) {
   background-color: var(--accent);
 }
@@ -2803,7 +2784,6 @@ body {
   box-sizing: border-box;
 }
 
-/* Внешние углы обложек концентричны углу карточки: радиус карточки минус толщина рамки (2px border + 1px padding) */
 .playlist-collage {
   --tile-outer: calc(18px - 3px);
   --tile-inner: 4px;
@@ -2840,7 +2820,6 @@ body {
   }
 }
 
-/* Всплывающее сообщение над плеером */
 .toast {
   position: fixed;
   left: 50%;
@@ -2893,8 +2872,6 @@ body {
     animation: none;
   }
 }
-
-/* ===== Очередь ===== */
 
 .player-right .queue-toggle.active,
 .player-right .queue-toggle.active:hover {
@@ -3021,8 +2998,6 @@ body {
   }
 }
 
-/* ===== Волна дня: три варианта по ширине блока (макет «10 · Волна дня») ===== */
-
 .hero-wrap {
   flex: none;
   container: wave / inline-size;
@@ -3033,7 +3008,6 @@ body {
   pointer-events: none;
 }
 
-/* В широком варианте счётчик тянется на всю высоту обложки, с теми же отступами от краёв, что и текст */
 .hero-counter {
   order: 2;
   align-self: stretch;
@@ -3099,7 +3073,6 @@ body {
   white-space: nowrap;
 }
 
-/* B · планшет: орбиты уходят на фон, счётчик — «таблетка» в правом верхнем углу */
 @container wave (max-width: 999px) {
   .hero {
     flex-direction: column;
@@ -3151,7 +3124,6 @@ body {
   }
 }
 
-/* C · телефон: всё в столбик, орбиты полупрозрачным фоном, счётчик — два чипа */
 @container wave (max-width: 639px) {
   .hero {
     gap: 18px;
@@ -3222,14 +3194,11 @@ body {
   visibility: hidden;
 }
 
-/* ===== Обрезка трека в плеере ===== */
-
 .trim-toggle.active {
   opacity: 1;
 }
 
 
-/* Время у полоски — фиксированной ширины, чтобы полоска не меняла длину, когда меняются цифры или включается обрезка */
 .progress-time {
   flex: none;
   width: 52px;
@@ -3240,13 +3209,10 @@ body {
 
 
 
-/* Два ползунка друг на друге: дорожка общая, хватаются только ручки */
-/* Общая дорожка для обычного режима и обрезки */
 .progress-track {
   position: relative;
   flex-grow: 1;
   min-width: 80px;
-  /* та же высота, что у обычной полоски — ручки выступают за неё, высота плеера не меняется */
   height: 14px;
 }
 
@@ -3270,8 +3236,6 @@ body {
   background-color: var(--black);
 }
 
-/* Кружок позиции. Центр встроенного кружка ползунка ходит от 7px до (ширина − 7px) — повторяем это,
-   чтобы видимый кружок совпадал с тем, за который хватаются */
 .progress-thumb {
   --pos: 0;
   position: absolute;
@@ -3294,7 +3258,6 @@ body {
   transform: scale(1.2);
 }
 
-/* Заливка и кружок перетекают между режимами только при их смене */
 .progress-track.animating .progress-fill {
   transition: left .3s cubic-bezier(.4, 0, .2, 1), width .3s cubic-bezier(.4, 0, .2, 1);
 }
@@ -3303,7 +3266,6 @@ body {
   transition: left .3s cubic-bezier(.4, 0, .2, 1), transform .15s;
 }
 
-/* Встроенные кружки ползунков прозрачные: видимый — общий .progress-thumb */
 .progress-track .progress-input::-webkit-slider-thumb,
 .progress-track .trim-position::-webkit-slider-thumb {
   opacity: 0;
@@ -3314,7 +3276,6 @@ body {
   opacity: 0;
 }
 
-/* Ползунок обычной полоски лежит поверх общей дорожки: своя дорожка у него прозрачная */
 .progress-track .progress-input {
   position: absolute;
   inset: 0;
@@ -3337,7 +3298,6 @@ body {
 
 
 .trim-range input {
-  /* над слоем выбранного куска */
   z-index: 1;
   position: absolute;
   inset: 0;
@@ -3363,7 +3323,6 @@ body {
   background: transparent;
 }
 
-/* Ручка по рефу: тёмная капсула 12×24 со скруглением 5 и жёлтой чертой 2×12 по центру */
 .trim-range input.trim-handle::-webkit-slider-thumb {
   appearance: none;
   width: 12px;
@@ -3415,8 +3374,6 @@ body {
   color: var(--accent);
 }
 
-/* Кружок текущей позиции — как ползунок обычной полоски, но под ручками обрезки */
-/* Точка текущей позиции — обычный кружок, как у полоски проигрывания */
 .trim-range input.trim-position::-webkit-slider-thumb {
   appearance: none;
   width: 14px;
@@ -3455,8 +3412,6 @@ body {
   font-size: 12px;
 }
 
-/* На узком плеере справа не хватает места под кнопки обрезки — на время обрезки прячем громкость,
-   кнопки справа сдвигаются к краю и освобождают место */
 @media (max-width: 1300px) {
   .player.trimming .player-right .volume-input,
   .player.trimming .player-right .volume-toggle {
@@ -3464,9 +3419,6 @@ body {
   }
 }
 
-/* Появление и скрытие элементов обрезки.
-   Появление — анимацией, скрытие — плавным переходом к прозрачности: класс closing выключает анимацию
-   появления, поэтому она не проигрывается заново, а элементы гаснут, а не пропадают резко. */
 .trim-range input.trim-handle {
   animation: trim-handle-in .2s ease-out;
   transition: opacity .18s ease-in, transform .18s ease-in;
@@ -3512,4 +3464,235 @@ body {
     animation: none;
     transition: none;
   }
+}
+
+.link-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: 'Manrope-Regular', sans-serif;
+  font-size: 14px;
+  letter-spacing: 0;
+  line-height: 1.45;
+  color: var(--light-gray);
+}
+
+.link-steps a {
+  color: var(--accent);
+}
+
+.link-steps code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background-color: var(--black);
+  font-family: 'IBMPlexMono-Regular', monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.auth-field textarea.headers-input {
+  min-height: 120px;
+  padding: 12px 16px;
+  box-sizing: border-box;
+  border: 1px solid var(--input-border);
+  border-radius: 16px;
+  outline: none;
+  resize: vertical;
+  background-color: var(--black);
+  color: var(--text);
+  font-family: 'IBMPlexMono-Regular', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  transition: border-color .3s;
+}
+
+.auth-field textarea.headers-input:focus {
+  border-color: var(--accent);
+}
+
+.playlist-card-wrap {
+  position: relative;
+  min-width: 0;
+  display: flex;
+}
+
+.playlist-card-wrap > .playlist-card {
+  flex: 1;
+  min-width: 0;
+}
+
+.playlist-hide-toggle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background-color: var(--black);
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(.85);
+  transition: opacity .15s, transform .15s;
+}
+
+.playlist-card-wrap:hover .playlist-hide-toggle,
+.playlist-hide-toggle:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.playlist-hide-toggle:hover {
+  transform: scale(1.08);
+}
+
+.playlist-hide-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.playlist-cover.playlist-hidden-cover {
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--border);
+  background-color: transparent;
+  color: #6E6B5E;
+}
+
+.playlist-card.is-hidden .playlist-card-title,
+.playlist-card.is-hidden .playlist-card-subtitle {
+  color: var(--gray);
+}
+
+.hidden-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.hidden-divider-dot {
+  color: var(--gray);
+  font-family: 'IBMPlexMono-Medium', monospace;
+  font-size: 11px;
+}
+
+.hidden-divider-line {
+  flex: 1;
+  height: 1px;
+  background-color: var(--border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .playlist-hide-toggle {
+    transition: none;
+  }
+}
+
+.playlist-card-wrap:has(.playlist-card.is-hidden) .playlist-hide-toggle {
+  background-color: var(--hover);
+}
+
+@keyframes sk-wave {
+  0% { background-position: 150% 0; }
+  100% { background-position: -50% 0; }
+}
+
+.sk {
+  display: block;
+  flex: none;
+  border-radius: 8px;
+  background: linear-gradient(100deg, #26271F 0%, #26271F 38%, #3A3B31 50%, #26271F 62%, #26271F 100%);
+  background-size: 200% 100%;
+  animation: sk-wave 1.6s linear infinite;
+}
+
+.sk.on-accent,
+.progress-track.is-loading .progress-rail {
+  background: linear-gradient(100deg, rgba(18, 19, 15, .16) 0%, rgba(18, 19, 15, .16) 38%, rgba(18, 19, 15, .3) 50%, rgba(18, 19, 15, .16) 62%, rgba(18, 19, 15, .16) 100%);
+  background-size: 200% 100%;
+  animation: sk-wave 1.6s linear infinite;
+}
+
+.playlist-cover.sk {
+  border: 0;
+}
+
+.cover.now-playing {
+  width: 60px;
+  border-radius: 14px;
+}
+
+.cover img.hidden {
+  position: absolute;
+  opacity: 0;
+}
+
+.cover-icon {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #6E6B5E;
+}
+
+.cover.on-accent .cover-icon {
+  color: rgba(18, 19, 15, .45);
+}
+
+.cover.cover-broken {
+  background-color: #17180F;
+  border: 1.5px dashed var(--input-border);
+  box-sizing: border-box;
+}
+
+.cover.card.cover-broken {
+  border-width: 2px;
+}
+
+.track.track-skeleton {
+  cursor: default;
+  pointer-events: none;
+}
+
+.track.track-skeleton .track-info {
+  gap: 7px;
+}
+
+.sk.sk-row-cover {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+}
+
+.playlist-card.playlist-card-skeleton {
+  gap: 10px;
+  cursor: default;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk,
+  .sk.on-accent,
+  .progress-track.is-loading .progress-rail {
+    animation: none;
+  }
+}
+
+.uploads-header {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.uploads-header .uploads-button {
+  height: 44px;
+  margin-left: auto;
 }

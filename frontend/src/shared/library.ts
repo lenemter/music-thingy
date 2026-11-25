@@ -14,9 +14,6 @@ import {
 import type { UserFileRead } from "./api.ts";
 import type { UserFile } from "./types.ts";
 
-// Свои загрузки хранятся на сервере (/api/uploads). IndexedDB осталась только для разового переноса
-// файлов, которые были загружены, пока бэкенд этого не умел.
-
 export type TrackInfo = {
     title?: string
     artist?: string
@@ -51,7 +48,6 @@ export async function fetchUploads(): Promise<UserFile[]> {
     return list.map(fileFromRead);
 }
 
-// Название, исполнителя и обложку из тегов бэкенд достаёт сам
 export async function uploadAudioFile(file: File): Promise<UserFile> {
     if (!FORMATS.includes(getFormat(file.name))) {
         throw new Error("Такой формат не поддерживается — нужен MP3, WAV, FLAC, OGG, M4A или AAC");
@@ -62,7 +58,6 @@ export async function uploadAudioFile(file: File): Promise<UserFile> {
     return fileFromRead(await createUpload(file, file.name));
 }
 
-// Свежая подписанная ссылка на аудио своего файла — для треков, восстановленных из истории или очереди
 export async function getUploadAudioUrl(id: number): Promise<string | undefined> {
     try {
         return (await fetchUpload(id)).audio_url;
@@ -96,7 +91,6 @@ export async function saveTrackInfo(file: UserFile, info: TrackInfo): Promise<Us
     return result ? fileFromRead(result) : file;
 }
 
-// ================= Разовый перенос из браузера =================
 
 type StoredFile = {
     id: number
@@ -123,7 +117,6 @@ function openOldDatabase(): Promise<IDBDatabase | null> {
         };
         request.onsuccess = () => {
             if (isNew) {
-                // Базы раньше не было — переносить нечего
                 request.result.close();
                 indexedDB.deleteDatabase(DB_NAME);
                 resolve(null);
@@ -143,7 +136,6 @@ function runOld<T>(db: IDBDatabase, mode: IDBTransactionMode, action: (store: ID
     });
 }
 
-// Меняет старые id загрузок на новые серверные во всём, что хранится в браузере: плейлистах, истории, очереди, лайках
 function remapLocalIds(owner: string, idMap: Map<number, number>) {
     const keys = ["signal-playlists", "signal-history", "signal-player-session", "signal-liked"].map((name) => name + ":" + owner);
 
@@ -212,7 +204,6 @@ async function runMigration() {
                 idMap.set(record.id, created.id);
                 await runOld(db, "readwrite", (store) => store.delete(record.id));
             } catch {
-                // Не получилось — файл остаётся в браузере, попробуем при следующем входе
                 continue;
             }
         }

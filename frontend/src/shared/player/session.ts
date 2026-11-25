@@ -1,7 +1,6 @@
 import type { Track } from "../types.ts";
 import { loadUser } from "../api.ts";
 
-// Что играло до перезагрузки: окно очереди вокруг текущего трека и, если играла волна, её зерно.
 export type PlayerSession = {
     queue: Track[]
     index: number
@@ -19,7 +18,6 @@ function clean(track: Track): Track {
     delete copy.liked;
     delete copy.unavailable;
     if (track.service === "local") {
-        // ссылка на файл живёт только до перезагрузки — при запуске её получим заново
         delete copy.audioUrl;
     }
     return copy;
@@ -42,7 +40,6 @@ export function saveSession(queue: Track[], index: number, waveSeed?: string) {
     if (queue.length === 0 || !queue[index]) {
         return;
     }
-    // Сохраняем только ближайшее: 3 сыгранных, текущий и 3 следующих
     const start = Math.max(0, index - KEEP_AROUND);
     const windowed = queue.slice(start, index + KEEP_AROUND + 1).map(clean);
     try {

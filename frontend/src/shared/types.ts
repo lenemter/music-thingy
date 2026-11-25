@@ -24,7 +24,6 @@ export type Track = {
     serviceId?: string
     audioUrl?: string
     externalUrl?: string
-    // Название сервиса, если он отключён и трек сейчас нельзя включить
     unavailable?: string
 }
 
