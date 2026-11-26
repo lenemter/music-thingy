@@ -10,6 +10,12 @@ from app.schemas.music import (
     ServiceErrorRead,
     TrackRead,
 )
+from app.schemas.playlist import (
+    PlaylistCreateRequest,
+    PlaylistUpdateRequest,
+    TrackRef,
+    UserPlaylistRead,
+)
 from app.schemas.service import (
     ConnectServiceRequest,
     ServiceConnectionStatus,
@@ -31,7 +37,9 @@ __all__ = [
     "LoginRequest",
     "MusicSearchResponse",
     "PlaybackInfo",
+    "PlaylistCreateRequest",
     "PlaylistRead",
+    "PlaylistUpdateRequest",
     "RefreshTokenRequest",
     "ServiceConnectionStatus",
     "ServiceErrorRead",
@@ -40,9 +48,11 @@ __all__ = [
     "Token",
     "TrackEditRequest",
     "TrackRead",
+    "TrackRef",
     "UserBase",
     "UserCreate",
     "UserFileRead",
+    "UserPlaylistRead",
     "UserRead",
     "YouTubeDeviceCodeResponse",
     "YouTubePollTokenRequest",
